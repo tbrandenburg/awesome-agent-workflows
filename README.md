@@ -38,12 +38,14 @@ checkout, start a run directly:
 
 ```bash
 dagu start workflows/issue-resolution.yaml --params \
-  'repository=owner/repository issue_number=123 validation_command="make test" required_checks=test auto_merge=false workspace_root="/absolute/path/to/workspaces" deployment_env_file="/absolute/path/to/deployment.env"'
+  'repository=owner/repository issue_number=123 validation_command="make test" required_checks=test workspace_root="/absolute/path/to/workspaces" deployment_env_file="/absolute/path/to/deployment.env"'
 ```
 
-Start with `auto_merge=false`. The workflow publishes a reviewed PR and preserves
-its issue worktree for resumption. Never run it against untrusted repositories:
-it executes project code and agent-proposed edits with the host user's privileges.
+By default, `auto_merge=true`: after validation, independent review, required CI,
+and remote-state checks pass, the workflow can merge the PR. Set
+`auto_merge=false` if you want to review the PR yourself instead. Never run it
+against untrusted repositories: it executes project code and agent-proposed edits
+with the host user's privileges.
 For a long-running Dagu service, install or symlink the workflow file into that
 service's DAG directory and verify discovery there; see the [local deployment
 guide](docs/issue-resolution.md#local-deployment). The interactive CLI and service

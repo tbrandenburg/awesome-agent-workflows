@@ -10,10 +10,10 @@ This repository contains portable Dagu workflows for software-engineering tasks.
 
    ```bash
    dagu start workflows/issue-resolution.yaml --params \
-     'repository=owner/repository issue_number=123 validation_command="make test" required_checks=test auto_merge=false workspace_root="/absolute/path/to/workspaces" deployment_env_file="/absolute/path/to/deployment.env"'
+     'repository=owner/repository issue_number=123 validation_command="make test" required_checks=test workspace_root="/absolute/path/to/workspaces" deployment_env_file="/absolute/path/to/deployment.env"'
    ```
 
-   Use `issue_number=0` to select an open issue. Start with `auto_merge=false`; inspect the resulting PR before enabling automatic merge. Never run against an untrusted repository. See [all parameters, deployment options, recovery, and safety details](docs/issue-resolution.md).
+   Use `issue_number=0` to select an open issue. `auto_merge` defaults to `true`, so the workflow can merge after its validation, independent review, required CI, and remote-state gates pass. Set `auto_merge=false` when you want to review the PR before merging. Never run against an untrusted repository. See [all parameters, deployment options, recovery, and safety details](docs/issue-resolution.md).
 
 For a persistent Dagu service, place or symlink the workflow file into that service's DAG directory and verify that service discovers it. Direct CLI execution does not require a symlink or scheduler. See [local deployment](docs/issue-resolution.md#local-deployment); GitHub Actions setup is optional.
 

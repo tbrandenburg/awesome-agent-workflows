@@ -30,7 +30,7 @@ on:
       auto_merge:
         description: Merge after passing validation, review and required CI
         type: boolean
-        default: false
+        default: true
 
 permissions:
   contents: read

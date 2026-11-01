@@ -52,7 +52,7 @@ params:
     description: Trusted operator-supplied real test command, executed in the issue worktree.
   - name: auto_merge
     type: boolean
-    default: false
+    default: true
   - name: required_checks
     type: string
     default: ''

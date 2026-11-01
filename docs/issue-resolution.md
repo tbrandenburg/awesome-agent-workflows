@@ -19,8 +19,9 @@ basic preflight + repository ownership lease
   -> clean merged worktree -> Telegram outcome -> release lease
 ```
 
-The workflow has no schedule. Default `auto_merge=false` leaves a validated,
-reviewed PR and its issue worktree available for a later manual run.
+The workflow has no schedule. Default `auto_merge=true` permits merging after
+validation, independent review, required CI, and remote-state checks pass. Set it
+to `false` to leave the validated, reviewed PR for manual review and merging.
 
 ## Prerequisites
 
@@ -41,7 +42,7 @@ reviewed PR and its issue worktree available for a later manual run.
 | `base_branch` | Empty: detect the target repository's default branch. |
 | `required_checks` | Comma-separated exact GitHub check names; checks must register and succeed. |
 | `allow_no_ci` | `false`; explicitly opt in only for a repository without CI. Present failing checks still block. |
-| `auto_merge` | `false`; when enabled, merge only after validation/review/CI and remote-state checks. |
+| `auto_merge` | `true`; set to `false` to disable merging. When enabled, merge only after validation/review/CI and remote-state checks. |
 | `workspace_root` | `/var/lib/dagu/workspaces`; override with an absolute writable directory on your host. |
 | `workspace_mode` | `persistent` or `ephemeral`; runner example uses ephemeral. |
 | `deployment_env_file` | `/var/lib/dagu/issue-resolver.env`; override with your protected dotenv file, or an empty file when injecting environment credentials. |
