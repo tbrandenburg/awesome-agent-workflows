@@ -29,8 +29,12 @@ credentials, model selection, recovery, and safety boundaries.
 
 ## Quick start
 
-Install Dagu, OpenCode V2, Python 3.11+, Git, and GitHub CLI. Configure GitHub and
-Telegram credentials plus at least one usable inference provider. Then run:
+The intended deployment is your own Dagu instance. It can run this workflow
+against any GitHub repository you can access; GitHub Actions is an optional
+alternative deployment, not a requirement. Install Dagu, OpenCode V2, Python
+3.11+, Git, and GitHub CLI on the machine that runs Dagu. Configure GitHub and
+Telegram credentials plus at least one usable inference provider. From this
+checkout, start a run directly:
 
 ```bash
 dagu start workflows/issue-resolution.yaml --params \
@@ -40,8 +44,12 @@ dagu start workflows/issue-resolution.yaml --params \
 Start with `auto_merge=false`. The workflow publishes a reviewed PR and preserves
 its issue worktree for resumption. Never run it against untrusted repositories:
 it executes project code and agent-proposed edits with the host user's privileges.
+For a long-running Dagu service, install or symlink the workflow file into that
+service's DAG directory and verify discovery there; see the [local deployment
+guide](docs/issue-resolution.md#local-deployment). The interactive CLI and service
+may use different Dagu configuration.
 
-## GitHub Actions
+## Optional: GitHub Actions deployment
 
 [Manual runner workflow](.github/workflows/run-issue-resolution.yml) installs
 pinned Dagu/OpenCode versions, executes the same self-contained YAML on a fresh
