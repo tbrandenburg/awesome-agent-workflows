@@ -1,0 +1,7 @@
+{
+  "name": "awesome-agent-workflows",
+  "private": true,
+  "devDependencies": {
+    "prettier": "3.9.10"
+  }
+}

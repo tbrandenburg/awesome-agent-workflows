@@ -18,31 +18,35 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
-      - name: Install test dependencies
-        run: python3 -m pip install -r requirements-dev.txt
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: false
+      - name: Install lint tools
+        run: |
+          python3 -m pip install -r requirements-dev.txt
+          npm ci
+          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
       - name: Install pinned Dagu
         shell: bash
         run: |
           set -euo pipefail
           directory="$RUNNER_TEMP/dagu-tools"
+          filename=dagu_2.24.0_linux_amd64.tar.gz
           mkdir -p "$directory"
           curl --fail --silent --show-error --location --max-time 120 \
             https://github.com/dagucloud/dagu/releases/download/v2.24.0/dagu_2.24.0_linux_amd64.tar.gz \
-            --output "$directory/dagu.tar.gz"
+            --output "$directory/$filename"
           curl --fail --silent --show-error --location --max-time 60 \
             https://github.com/dagucloud/dagu/releases/download/v2.24.0/checksums.txt \
             --output "$directory/checksums.txt"
-          python3 - "$directory" <<'PY'
-          import hashlib, pathlib, sys
-          root = pathlib.Path(sys.argv[1])
-          filename = 'dagu_2.24.0_linux_amd64.tar.gz'
-          rows = [line.split() for line in (root / 'checksums.txt').read_text().splitlines()]
-          expected = next(row[0] for row in rows if len(row) == 2 and row[1].lstrip('*') == filename)
-          if hashlib.sha256((root / 'dagu.tar.gz').read_bytes()).hexdigest() != expected:
-              raise SystemExit('Dagu checksum mismatch')
-          PY
-          tar -xzf "$directory/dagu.tar.gz" -C "$directory" dagu
+          cd "$directory"
+          awk -v file="$filename" '$2 == file || $2 == "*" file {print}' checksums.txt | sha256sum --check --strict
+          tar -xzf "$filename" dagu
           echo "$directory" >> "$GITHUB_PATH"
-      - name: Validate deployable artifacts
+      - name: Format, lint and validate artifacts
         run: make validate

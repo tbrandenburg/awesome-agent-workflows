@@ -1,22 +1,32 @@
 PYTHON ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
 RUFF ?= $(if $(wildcard .venv/bin/ruff),.venv/bin/ruff,ruff)
+YAMLLINT ?= $(if $(wildcard .venv/bin/yamllint),.venv/bin/yamllint,yamllint)
+PRETTIER ?= node_modules/.bin/prettier
 
-.PHONY: install test lint validate clean
+.PHONY: install format format-check lint validate clean
 
 install:
 	$(PYTHON) -m venv .venv
 	.venv/bin/python -m pip install -r requirements-dev.txt
-	@printf 'Local environment installed; subsequent make commands use .venv automatically.\n'
+	npm ci
 
-test:
-	PYTHONDONTWRITEBYTECODE=1 $(PYTHON) -m unittest discover -s tests -p 'test_*.py' -v
+format:
+	$(PRETTIER) --write .
+	$(RUFF) format scripts
 
-lint:
-	$(RUFF) check tests
-	$(RUFF) format --check tests
+format-check:
+	$(PRETTIER) --check .
+	$(RUFF) format --check scripts
 
-validate: test lint
+lint: format-check
+	$(YAMLLINT) --strict workflows .github/workflows .prettierrc.yaml .yamllint.yaml
+	$(RUFF) check scripts
+	$(PYTHON) scripts/lint_embedded.py --ruff "$(RUFF)" workflows/*.yaml
+	@command -v shellcheck
+	actionlint
+
+validate: lint
 	@for file in workflows/*.yaml; do dagu validate "$$file" || exit 1; done
 
 clean:
-	rm -rf workspace/tmp .ruff_cache .pytest_cache
+	rm -rf .ruff_cache
