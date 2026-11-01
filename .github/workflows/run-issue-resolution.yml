@@ -11,18 +11,6 @@ on:
         description: Issue number, or zero to select an open issue
         type: number
         default: 0
-      validation_command:
-        description: Trusted project validation shell command
-        required: true
-        type: string
-      required_checks:
-        description: Comma-separated required GitHub check names
-        type: string
-        default: test
-      allow_no_ci:
-        description: Explicitly allow a repository without CI; present failing checks still block
-        type: boolean
-        default: false
       base_branch:
         description: Optional base branch; empty detects the repository default
         type: string
@@ -53,9 +41,6 @@ jobs:
       PYTHONDONTWRITEBYTECODE: '1'
       RESOLVER_REPOSITORY: ${{ inputs.repository }}
       RESOLVER_ISSUE: ${{ inputs.issue_number }}
-      RESOLVER_VALIDATION: ${{ inputs.validation_command }}
-      RESOLVER_CHECKS: ${{ inputs.required_checks }}
-      RESOLVER_ALLOW_NO_CI: ${{ inputs.allow_no_ci }}
       RESOLVER_BASE: ${{ inputs.base_branch }}
       RESOLVER_AUTO_MERGE: ${{ inputs.auto_merge }}
       WORKFLOW_HOST_PRIVATE: ${{ github.event.repository.private }}
@@ -98,6 +83,7 @@ jobs:
           echo "$directory" >> "$GITHUB_PATH"
           echo "DAGU_HOME=$RUNNER_TEMP/dagu" >> "$GITHUB_ENV"
           npm install --global @opencode/cli@2.0.28
+          python3 -m pip install PyYAML==6.0.3
           "$directory/dagu" version
           opencode --version
           gh --version
@@ -134,9 +120,6 @@ jobs:
           params = {
               'repository': os.environ['RESOLVER_REPOSITORY'],
               'issue_number': os.environ['RESOLVER_ISSUE'],
-              'validation_command': os.environ['RESOLVER_VALIDATION'],
-              'required_checks': os.environ['RESOLVER_CHECKS'],
-              'allow_no_ci': os.environ['RESOLVER_ALLOW_NO_CI'],
               'base_branch': os.environ['RESOLVER_BASE'],
               'auto_merge': os.environ['RESOLVER_AUTO_MERGE'],
               'workspace_root': str(pathlib.Path(os.environ['RUNNER_TEMP']) / 'resolver'),

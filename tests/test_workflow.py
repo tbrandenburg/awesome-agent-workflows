@@ -2,6 +2,7 @@
 
 import json
 import subprocess
+import sys
 
 from runtime_case import RuntimeCase, documents, embedded_source
 
@@ -73,7 +74,7 @@ class WorkflowTests(RuntimeCase):
         script = self.root / "resolver with spaces.py"
         script.write_text(embedded_source())
         result = subprocess.run(
-            ["python3", "-I", str(script), "agent", "--help"],
+            [sys.executable, "-I", str(script), "agent", "--help"],
             cwd=self.root,
             capture_output=True,
             text=True,

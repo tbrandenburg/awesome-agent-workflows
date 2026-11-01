@@ -45,22 +45,9 @@ params:
   - name: base_branch
     type: string
     default: ''
-  - name: validation_command
-    type: string
-    required: true
-    min_length: 1
-    description: Trusted operator-supplied real test command, executed in the issue worktree.
   - name: auto_merge
     type: boolean
     default: true
-  - name: required_checks
-    type: string
-    default: ''
-    description: Comma-separated exact GitHub check names which must register and pass.
-  - name: allow_no_ci
-    type: boolean
-    default: false
-    description: Explicit opt-in for repositories without CI; never ignores present failing checks.
 consts:
   - economy: '["openai/gpt-6-luna","github-copilot/gpt-6-luna","anthropic/claude-haiku-5-5","github-copilot/claude-haiku-5.5","openrouter/openai/gpt-6-luna","opencode/big-pickle"]'
   - balanced: '["openai/gpt-6.1-sol","github-copilot/gpt-6.1-sol","anthropic/claude-sonnet-5-5","github-copilot/claude-sonnet-5.5","openrouter/openai/gpt-6.1-sol","opencode/big-pickle"]'
@@ -90,7 +77,7 @@ steps:
       path: ${env.HELPER}
       create_dirs: true
       content: |
-        # Generated self-contained resolver runtime; Python standard library only.
+        # Self-contained resolver runtime; PyYAML parses repository workflow configuration.
         import json
         import os
         import re
@@ -106,6 +93,8 @@ steps:
         import time
         import hashlib
         import html
+        import itertools
+        import yaml
         import urllib.error
         import urllib.parse
         import urllib.request
@@ -192,7 +181,14 @@ steps:
             verify_pr(context, pr, field)
             if git(context, 'rev-parse', 'HEAD') != context[field]:
                 raise RuntimeError('PR/local HEAD changed after verification; refusing stale evidence')
+            branch = urllib.parse.quote(context['base'], safe='')
+            remote = gh('api', f'repos/{context["repository"]}/branches/{branch}')
+            verify_base(context, remote)
             return pr
+
+        def verify_base(context: dict, remote: dict) -> None:
+            if remote['commit']['sha'] != context['base_sha']:
+                raise RuntimeError('PR base commit changed after investigation; fresh investigation required')
 
         def workspace(value: str) -> Path:
             path = Path(value).expanduser()
@@ -365,23 +361,43 @@ steps:
                 return
             (path.parent / 'unfinished.patch').write_text(patch + '\n')
             (path.parent / 'recovery.json').write_text(json.dumps({'repository': context['repository'], 'issue': context['issue'], 'branch': context['branch'], 'head': git(context, 'rev-parse', 'HEAD'), 'patch_paths': eligible, 'untracked_paths': included, 'excluded_paths': [name for name in [*files, *untracked] if not safe_source(name)], 'note': 'Published commits resume from remote branch/PR. Uncommitted source requires applying downloaded recovery artifacts; no unvalidated commit was pushed.'}, indent=2))
-        ALIASES = {'typecheck': {'typecheck', 'type-check', 'check-types', 'types'}, 'lint': {'lint', 'format:check', 'format-check', 'lint:check'}, 'tests': {'test', 'test:unit', 'test-unit', 'test:all'}, 'build': {'build', 'build:production'}}
+        ALIASES = {'typecheck': {'typecheck', 'type-check', 'check-types', 'types'}, 'lint': {'lint', 'format:check', 'format-check', 'lint:check'}, 'tests': {'test', 'test:unit', 'test-unit', 'test:all', 'check', 'validate', 'verify', 'qa', 'qa-quick'}, 'build': {'build', 'build:production'}}
 
-        def catalog(directory: Path) -> dict[str, list[list[str]]]:
+        def sources(directory: Path) -> list[Path]:
+            excluded = {'.git', 'node_modules', '.venv', 'venv', '.worktrees', 'vendor', 'dist', 'build', 'coverage'}
+            found = []
+            for root, folders, files in os.walk(directory, followlinks=False):
+                folders[:] = sorted(name for name in folders if name not in excluded and not (Path(root) / name).is_symlink())
+                for name in sorted(files):
+                    path = Path(root) / name
+                    if not path.is_symlink() and safe_source(str(path.relative_to(directory))):
+                        if name in {'Makefile', 'package.json', 'pyproject.toml', 'AGENTS.md', 'CLAUDE.md', 'README.md', 'mypy.ini', 'pytest.ini', 'ruff.toml', '.ruff.toml', 'Cargo.toml', 'go.mod'} or '.github/workflows' in path.relative_to(directory).as_posix():
+                            found.append(path)
+                if len(found) > 1000:
+                    raise ValueError('Validation discovery exceeded 1000 source files; ambiguous scope')
+            return found
+
+        def local_catalog(directory: Path, boundary: Path | None=None) -> dict[str, list[list[str]]]:
             result: dict[str, list[list[str]]] = {kind: [] for kind in ALIASES}
             manifest = directory / 'package.json'
             if manifest.is_file():
                 scripts = json.loads(manifest.read_text()).get('scripts', {})
-                manager = 'pnpm' if (directory / 'pnpm-lock.yaml').exists() else 'yarn' if (directory / 'yarn.lock').exists() else 'bun' if (directory / 'bun.lock').exists() or (directory / 'bun.lockb').exists() else 'npm'
+                declared = json.loads(manifest.read_text()).get('packageManager', '').split('@', 1)[0]
+                parents = [directory, *[parent for parent in directory.parents if boundary is not None and parent.is_relative_to(boundary)]]
+                locks = [('pnpm', 'pnpm-lock.yaml'), ('yarn', 'yarn.lock'), ('bun', 'bun.lock'), ('bun', 'bun.lockb'), ('npm', 'package-lock.json')]
+                manager = declared or next((name for parent in parents for name, lock in locks if (parent / lock).is_file()), 'npm')
+                if manager not in {'npm', 'pnpm', 'yarn', 'bun'}:
+                    raise ValueError('Unsupported declared package manager; validation blocked')
                 for kind, names in ALIASES.items():
-                    for name in sorted(names & scripts.keys()):
-                        if isinstance(scripts[name], str):
+                    for name in sorted(name for name in scripts if name in names or validation_kind(name) == kind):
+                        if isinstance(scripts[name], str) and scripts[name].strip():
                             result[kind].append([manager, 'run', name])
             makefile = directory / 'Makefile'
             if makefile.is_file():
-                targets = set(re.findall('^([A-Za-z0-9_.-]+)\\s*:(?!=)', makefile.read_text(), re.MULTILINE))
+                groups = re.findall('^([A-Za-z0-9_. -]+)\\s*:(?!=)', makefile.read_text(), re.MULTILINE)
+                targets = {name for group in groups for name in group.split() if re.fullmatch('[A-Za-z0-9_][A-Za-z0-9_.-]*', name)}
                 for kind, names in ALIASES.items():
-                    for name in sorted(names & targets):
+                    for name in sorted(name for name in targets if name in names or validation_kind(name) == kind):
                         result[kind].append(['make', name])
             project = directory / 'pyproject.toml'
             python = tomllib.loads(project.read_text()) if project.is_file() else {}
@@ -402,12 +418,70 @@ steps:
                     result[kind].append(argv)
             return result
 
-        def resolve(command: str, kind: str, directory: Path, operator: str) -> list[str] | None:
-            if command == operator or shlex.split(command) == shlex.split(operator):
+        def catalog(directory: Path) -> dict[str, list[list[str]]]:
+            result: dict[str, list[list[str]]] = {kind: [] for kind in ALIASES}
+            directories = sorted({directory, *[path.parent for path in sources(directory) if path.name in {'Makefile', 'package.json', 'pyproject.toml', 'mypy.ini', 'pytest.ini', 'ruff.toml', '.ruff.toml', 'Cargo.toml', 'go.mod'}]})
+            for folder in directories:
+                relative = folder.relative_to(directory).as_posix()
+                for kind, commands in local_catalog(folder, directory).items():
+                    for argv in commands:
+                        # A fixed cwd wrapper supports nested projects without shell evaluation.
+                        result[kind].append(argv if relative == '.' else ['env', '-C', relative, *argv])
+            for source in sources(directory):
+                if source.name not in {'README.md', 'AGENTS.md', 'CLAUDE.md'} and '.github/workflows' not in source.relative_to(directory).as_posix():
+                    continue
+                for line in source.read_text().splitlines():
+                    text = line.strip()
+                    if text.startswith('run: '):
+                        text = text[5:].strip()
+                    if not text.startswith('python3 -m unittest discover'):
+                        continue
+                    argv = shlex.split(text)
+                    if not unittest_command(argv, directory):
+                        raise ValueError('Documented unittest validation is unsupported or has no matching project tests')
+                    if argv not in result['tests']:
+                        result['tests'].append(argv)
+            return result
+
+        def unittest_command(argv: list[str], directory: Path) -> bool:
+            if argv[:4] != ['python3', '-m', 'unittest', 'discover']:
+                return False
+            options = {}
+            index = 4
+            while index < len(argv):
+                flag = argv[index]
+                if flag in ('-v', '-q') and flag not in options:
+                    options[flag] = True
+                    index += 1
+                    continue
+                if flag not in ('-s', '-p', '-t') or flag in options or index + 1 >= len(argv):
+                    return False
+                options[flag] = argv[index + 1]
+                index += 2
+            pattern = options.get('-p', 'test*.py')
+            if not re.fullmatch('[A-Za-z0-9_.*?-]+', pattern) or not pattern.endswith('.py'):
+                return False
+            start = directory / options.get('-s', '.')
+            top = directory / options.get('-t', '.')
+            for folder in (start, top):
+                if not folder.is_dir() or not folder.resolve().is_relative_to(directory.resolve()) or any(parent.is_symlink() for parent in [folder, *folder.parents]):
+                    return False
+                if '..' in folder.relative_to(directory).parts:
+                    return False
+            return any(path.is_file() and not path.is_symlink() for path in start.rglob(pattern))
+
+        def validation_kind(name: str) -> str | None:
+            if re.search('(?:^|[-:])(?:fix|watch|dev|install|clean)(?:$|[-:])', name):
                 return None
+            for kind, pattern in [('typecheck', 'type.?check|check.?types'), ('lint', 'lint|format.?check|check.?format'), ('tests', 'test|validate|verify|check|qa|smoke'), ('build', 'build')]:
+                if re.search(f'^(?:{pattern})(?:$|[-:])', name):
+                    return kind
+            return None
+
+        def resolve(command: str, kind: str, directory: Path) -> list[str]:
             argv = shlex.split(command)
             if argv not in catalog(directory)[kind]:
-                raise ValueError(f'Unapproved planned {kind} command; choose a catalog entry or include it in the operator command')
+                raise ValueError(f'Unapproved planned {kind} command; no matching repository script/configuration')
             return argv
         KINDS = {'typecheck', 'lint', 'tests', 'build'}
 
@@ -417,32 +491,46 @@ steps:
             if {item.get('kind') for item in checks if isinstance(item, dict)} != KINDS:
                 raise ValueError('Plan check categories must be unique and complete')
             for item in checks:
-                if not isinstance(item.get('command'), str) or not isinstance(item.get('reason'), str) or (not item['reason'].strip()):
-                    raise ValueError('Every check needs a command or a justified N/A reason')
+                if not isinstance(item.get('commands'), list) or any(not isinstance(command, str) or not command.strip() for command in item['commands']) or not isinstance(item.get('reason'), str) or not item['reason'].strip():
+                    raise ValueError('Every check needs a commands array and an evidence-based reason')
             tests = next((item for item in checks if item['kind'] == 'tests'))
-            if not tests['command'].strip():
+            if not tests['commands']:
                 raise ValueError('Tests cannot be marked not applicable')
             if directory is not None:
                 available = catalog(directory)
                 for item in checks:
-                    if not item['command'].strip() and available[item['kind']]:
-                        raise ValueError(f'Cataloged {item['kind']} check cannot be marked not applicable')
+                    proposed = {tuple(resolve(command, item['kind'], directory)) for command in item['commands']}
+                    if proposed != {tuple(argv) for argv in available[item['kind']]}:
+                        raise ValueError(f'Cataloged {item["kind"]} checks cannot be omitted or marked not applicable')
 
         def run_checks(context: dict, directory: str, artifact: Path, prefix: str) -> list[dict]:
             if not context.get('planned'):
                 raise RuntimeError('A validated published plan is required before validation/publication')
-            checks = context['validation_checks']
+            checks = context.get('validation_checks')
+            if checks is None:
+                raise RuntimeError('Recorded validation checks missing; validation blocked')
             validate_checks(checks, Path(directory))
-            commands = list(dict.fromkeys([context['validation'], *[item['command'] for item in checks if item['command'].strip()]]))
+            plan = load(artifact / 'plan.json')
+            if plan['checks'] != checks or hashlib.sha256((artifact / 'plan.json').read_bytes()).hexdigest() != context['plan_digest']:
+                raise RuntimeError('Recorded validation plan changed; refusing stale evidence')
+            commands = list(dict.fromkeys(command for item in checks for command in item['commands']))
             results = []
             logs = []
             for command in commands:
-                entry = next((item for item in checks if item['command'] == command), {'kind': 'tests'})
-                approved = resolve(command, entry['kind'], Path(directory), context['validation'])
-                argv = approved if approved is not None else ['bash', '-o', 'pipefail', '-c', context['validation']]
-                result = subprocess.run(argv, cwd=directory, capture_output=True, text=True, timeout=600)
-                results.append({'command': redact(command), 'exit_code': result.returncode})
-                logs.append(redact(f'$ {command}\nexit_code={result.returncode}\n{result.stdout}{result.stderr}\n'))
+                entry = next(item for item in checks if command in item['commands'])
+                argv = resolve(command, entry['kind'], Path(directory))
+                try:
+                    result = subprocess.run(argv, cwd=directory, capture_output=True, text=True, timeout=600)
+                    outcome = {'command': redact(command), 'exit_code': result.returncode}
+                    output = result.stdout + result.stderr
+                except subprocess.TimeoutExpired:
+                    outcome = {'command': redact(command), 'exit_code': 124}
+                    output = 'Validation exceeded the 600-second limit; no passing evidence'
+                except OSError:
+                    outcome = {'command': redact(command), 'exit_code': 127}
+                    output = 'Validation executable/cwd unavailable; check repository prerequisites'
+                results.append(outcome)
+                logs.append(redact(f'$ {command}\nexit_code={outcome["exit_code"]}\n{output}\n'))
             (artifact / f'{prefix}.log').write_text('\n'.join(logs))
             (artifact / f'{prefix}-results.json').write_text(json.dumps({'checks': checks, 'commands': results}, indent=2))
             failed = [item for item in results if item['exit_code']]
@@ -450,9 +538,215 @@ steps:
                 raise RuntimeError(f'{len(failed)} validation command(s) failed; exit {failed[0]['exit_code']}; see {prefix}.log')
             return results
 
-        def assess(checks: list[dict], required: list[str], allow_no_ci: bool) -> bool:
-            if not required and (not allow_no_ci):
-                raise ValueError('No CI policy configured')
+        def workflow_documents(directory: Path) -> dict:
+            result = {}
+            folder = directory / '.github' / 'workflows'
+            for path in sorted(folder.glob('*')):
+                if path.suffix not in ('.yml', '.yaml'):
+                    continue
+                if path.is_symlink() or not path.is_file():
+                    raise ValueError('Workflow discovery cannot follow symlinks')
+                # BaseLoader preserves the GitHub "on" key and scalar matrix labels.
+                value = yaml.load(path.read_text(), Loader=yaml.BaseLoader)
+                if not isinstance(value, dict):
+                    raise ValueError(f'Invalid workflow configuration: {path.name}')
+                result[path.relative_to(directory).as_posix()] = value
+            return result
+
+        def policy(context: dict) -> dict:
+            branch = urllib.parse.quote(context['base'], safe='')
+            prefix = f'repos/{context["repository"]}'
+            metadata = gh('api', f'{prefix}/branches/{branch}')
+            # Inspect effective branch rules, including inherited organization rulesets.
+            response = subprocess.run(['gh', 'api', f'{prefix}/rules/branches/{branch}', '--paginate', '--slurp'], capture_output=True, text=True, timeout=90)
+            if response.returncode:
+                repository_metadata = gh('api', prefix)
+                protection_response = subprocess.run(['gh', 'api', f'{prefix}/branches/{branch}/protection'], capture_output=True, text=True, timeout=90)
+                try:
+                    errors = [json.loads(response.stdout), json.loads(protection_response.stdout)]
+                except json.JSONDecodeError:
+                    raise RuntimeError('Branch policy discovery unavailable; API error details withheld') from None
+                if protection_response.returncode and policy_feature_absent(metadata, repository_metadata, errors):
+                    return {'protected': False, 'checks': [], 'rules': [], 'protection': {}, 'availability': {'kind': 'feature_not_supported', 'verified_criteria': {'branch_unprotected': True, 'private_personal_repository': True, 'administrator_access': True, 'both_apis_report_missing_entitlement': True}, 'evidence': errors}}
+                raise RuntimeError('Effective branch policy discovery unavailable or ambiguous; cannot establish CI requirements')
+            rules = json.loads(response.stdout)
+            if not isinstance(rules, list) or any(not isinstance(page, list) for page in rules):
+                raise ValueError('Cannot discover effective branch rulesets')
+            protection = {}
+            if metadata.get('protected'):
+                response = subprocess.run(['gh', 'api', f'{prefix}/branches/{branch}/protection'], capture_output=True, text=True, timeout=90)
+                if response.returncode:
+                    # Ruleset-only protection can return 404; a permission denial is a blocker.
+                    if 'HTTP 404' not in response.stderr or not any(rules):
+                        raise RuntimeError('Branch protection discovery unavailable; cannot establish CI requirements')
+                else:
+                    protection = json.loads(response.stdout).get('required_status_checks') or {}
+            expectations = [{'name': name, 'app_id': None} for name in protection.get('contexts', [])]
+            expectations.extend({'name': item['context'], 'app_id': item.get('app_id')} for item in protection.get('checks', []))
+            for page in rules:
+                for rule in page:
+                    if rule.get('type') == 'required_workflows':
+                        raise ValueError('Organization required workflows need unsupported workflow identity discovery; blocked')
+                    if rule.get('type') == 'required_status_checks':
+                        expectations.extend({'name': item['context'], 'app_id': item.get('integration_id')} for item in rule['parameters']['required_status_checks'])
+            return {'protected': metadata.get('protected'), 'checks': expectations, 'rules': rules, 'protection': protection}
+
+        def policy_feature_absent(branch: dict, repository_metadata: dict, errors: list[object]) -> bool:
+            # This is explicit feature absence, not a fallback for authorization failures.
+            message = 'Upgrade to GitHub Pro or make this repository public to enable this feature.'
+            normalized = [error[0] if isinstance(error, list) and len(error) == 1 else error for error in errors]
+            return branch.get('protected') is False and repository_metadata.get('private') is True and repository_metadata.get('owner', {}).get('type') == 'User' and repository_metadata.get('permissions', {}).get('admin') is True and len(normalized) == 2 and all(isinstance(error, dict) and str(error.get('status')) == '403' and error.get('message') == message for error in normalized)
+
+        def matches(value: str, patterns: list[str]) -> bool:
+            matched = False
+            for raw in patterns:
+                if not isinstance(raw, str) or re.search('[\\[\\]+?]', raw):
+                    raise ValueError('Ambiguous advanced GitHub filter pattern; blocked')
+                negative = raw.startswith('!')
+                pattern = raw[1:] if negative else raw
+                expression = re.escape(pattern).replace(r'\*\*/', '(?:.*/)?').replace(r'\*\*', '.*').replace(r'\*', '[^/]*')
+                if re.fullmatch(expression, value):
+                    matched = not negative
+            return matched
+
+        def triggered(workflow: dict, base: str, branch: str, paths: list[str]) -> bool:
+            events = workflow.get('on', {})
+            if isinstance(events, str):
+                events = {events: {}}
+            if isinstance(events, list):
+                events = {event: {} for event in events}
+            if not isinstance(events, dict):
+                raise ValueError('Ambiguous GitHub workflow triggers')
+            for event, ref in [('pull_request', base), ('push', branch)]:
+                if event not in events:
+                    continue
+                filters = events[event] or {}
+                if not isinstance(filters, dict):
+                    raise ValueError('Invalid workflow event filters')
+                for key in ('branches', 'branches-ignore', 'paths', 'paths-ignore', 'types'):
+                    if key in filters and (not isinstance(filters[key], list) or any(not isinstance(value, str) for value in filters[key])):
+                        raise ValueError('Ambiguous GitHub workflow filter configuration')
+                if event == 'push' and ('tags' in filters or 'tags-ignore' in filters) and not ('branches' in filters or 'branches-ignore' in filters):
+                    continue
+                if 'types' in filters and 'pull_request' == event:
+                    types = set(filters['types'])
+                    if not {'opened', 'synchronize', 'reopened'}.issubset(types):
+                        raise ValueError('PR activity filters cannot guarantee CI on publication and repair')
+                if 'branches' in filters and not matches(ref, filters['branches']):
+                    continue
+                if 'branches-ignore' in filters and matches(ref, filters['branches-ignore']):
+                    continue
+                if 'paths' in filters and not any(matches(path, filters['paths']) for path in paths):
+                    continue
+                if 'paths-ignore' in filters and paths and all(matches(path, filters['paths-ignore']) for path in paths):
+                    continue
+                return True
+            if 'pull_request_target' in events:
+                raise ValueError('pull_request_target CI needs separate trusted-base semantics; blocked')
+            return False
+
+        def matrix_rows(job: dict) -> list[dict]:
+            matrix = job.get('strategy', {}).get('matrix')
+            if matrix is None:
+                return [{}]
+            if not isinstance(matrix, dict):
+                raise ValueError('Dynamic matrix discovery is ambiguous; blocked')
+            axes = {key: value for key, value in matrix.items() if key not in ('include', 'exclude')}
+            if any(not isinstance(values, list) or not values or any(not isinstance(value, str) or '${{' in value for value in values) for values in axes.values()):
+                raise ValueError('Unsupported matrix axis; blocked')
+            size = 1
+            for values in axes.values():
+                size *= len(values)
+            if size > 128:
+                raise ValueError('Matrix discovery exceeds 128 jobs')
+            excluded = matrix.get('exclude', [])
+            if not isinstance(excluded, list) or any(not isinstance(row, dict) for row in excluded):
+                raise ValueError('Unsupported matrix exclude')
+            combinations = [dict(zip(axes, values)) for values in itertools.product(*axes.values())] if axes else []
+            originals = [row for row in combinations if not any(all(row.get(key) == value for key, value in exclusion.items()) for exclusion in excluded)]
+            rows = [row.copy() for row in originals]
+            for included in matrix.get('include', []):
+                if not isinstance(included, dict) or any(not isinstance(value, str) or '${{' in value for value in included.values()):
+                    raise ValueError('Unsupported matrix include')
+                compatible = [index for index, row in enumerate(originals) if all(key not in axes or row[key] == value for key, value in included.items())]
+                if compatible:
+                    for index in compatible:
+                        rows[index].update(included)
+                else:
+                    rows.append(included.copy())
+            return rows
+
+        def job_names(workflow: dict, workflows: dict, chain: tuple[str, ...]=()) -> list[str]:
+            jobs = workflow.get('jobs')
+            if not isinstance(jobs, dict) or not jobs:
+                raise ValueError('Applicable workflow has no discoverable jobs')
+            names = []
+            for identifier, job in jobs.items():
+                if not isinstance(job, dict) or job.get('if', 'true') != 'true' or job.get('continue-on-error', 'false') != 'false':
+                    raise ValueError('Conditional or allowed-failure CI job is ambiguous; blocked')
+                for row in matrix_rows(job):
+                    name = job.get('name', identifier)
+                    for key, value in row.items():
+                        name = re.sub(r'[$]\{\{\s*matrix\.' + re.escape(key) + r'\s*\}\}', lambda _: value, name)
+                    if '${{' in name:
+                        raise ValueError('Dynamic CI job name is ambiguous; blocked')
+                    if 'name' not in job and row:
+                        name += ' (' + ', '.join(row.values()) + ')'
+                    if 'uses' not in job:
+                        names.append(name)
+                        continue
+                    target = job['uses']
+                    if not target.startswith('./') or target[2:] not in workflows or target in chain or len(chain) >= 8:
+                        raise ValueError('Remote, cyclic, or unavailable reusable workflow; blocked')
+                    child = workflows[target[2:]]
+                    if 'workflow_call' not in child.get('on', {}):
+                        raise ValueError('Reusable workflow lacks workflow_call')
+                    names.extend(name + ' / ' + childname for childname in job_names(child, workflows, (*chain, target)))
+            if not names or len(names) != len(set(names)):
+                raise ValueError('Empty or duplicate expected CI job names; blocked')
+            return names
+
+        def expected_ci(discovery: dict, base: str, branch: str, paths: list[str]) -> list[dict]:
+            expected = list(discovery['policy']['checks'])
+            workflow_names = []
+            for workflow in discovery['workflows'].values():
+                if triggered(workflow, base, branch, paths):
+                    workflow_names.extend(job_names(workflow, discovery['workflows']))
+            if len(workflow_names) != len(set(workflow_names)):
+                raise ValueError('Ambiguous duplicate CI names across applicable workflows; blocked')
+            expected.extend({'name': name, 'app_id': 15368} for name in workflow_names)
+            if not expected:
+                raise ValueError('No applicable expected GitHub checks discovered; CI cannot be verified')
+            result = {}
+            for item in expected:
+                if not isinstance(item['name'], str) or not item['name'].strip():
+                    raise ValueError('Invalid expected GitHub check identity')
+                key = (item['name'], item['app_id'])
+                result[key] = item
+            return list(result.values())
+
+        def discover(path: Path) -> dict:
+            context = load(path)
+            if context.get('planned'):
+                return context
+            directory = Path(context['worktree'])
+            try:
+                files = sources(directory)
+                available = catalog(directory)
+                if not available['tests']:
+                    raise ValueError('No repository-backed test/validation entrypoint discovered; investigation blocked')
+                discovery = {'catalog': available, 'sources': [file.relative_to(directory).as_posix() for file in files], 'workflows': workflow_documents(directory), 'policy': policy(context)}
+                discovery['workflow_scope'] = {name: 'automatic_ci_candidate' if any(event in (workflow.get('on') or {}) for event in ('pull_request', 'push', 'pull_request_target')) else 'not_automatic_ci_for_this_run' for name, workflow in discovery['workflows'].items()}
+                save(path.parent / 'discovery.json', discovery)
+            except (ValueError, RuntimeError, yaml.YAMLError) as error:
+                context.update(phase='discovery_blocked', blocker=str(error))
+                save(path, context)
+                raise
+            return context
+
+        def assess(checks: list[dict], required: list[str]) -> bool:
+            if not required:
+                raise ValueError('No expected CI checks discovered; refusing empty CI success')
             names = {check.get('name', check.get('context')) for check in checks}
             pending = not set(required).issubset(names)
             for check in checks:
@@ -467,6 +761,9 @@ steps:
                     pending = True
             return not pending
 
+        def ci_identities(registered: list[dict], expected: list[dict], head: str) -> bool:
+            return all(any(item['name'] == entry['name'] and item['app']['id'] == entry['app_id'] and item['head_sha'] == head and item['status'] == 'completed' and item['conclusion'] == 'success' for item in registered) for entry in expected if entry['app_id'] not in (None, -1))
+
         def ci_gate(path: Path) -> dict:
             context = load(path)
             deadline = time.monotonic() + 180
@@ -474,9 +771,23 @@ steps:
                 pr = assert_head(context, 'reviewed_sha')
                 checks = pr['statusCheckRollup'] or []
                 try:
-                    ready = assess(checks, context['required_checks'], context['allow_no_ci'])
-                except RuntimeError:
-                    context.update(phase='ci_failed', blocker='GitHub CI has failing checks; see PR check logs')
+                    discovery = load(path.parent / 'discovery.json')
+                    plan = load(path.parent / 'plan.json')
+                    if hashlib.sha256((path.parent / 'plan.json').read_bytes()).hexdigest() != context['plan_digest'] or discovery != plan['discovery']:
+                        raise RuntimeError('Recorded discovery/plan changed; refusing stale CI evidence')
+                    if policy(context) != discovery['policy'] or workflow_documents(Path(context['worktree'])) != discovery['workflows']:
+                        raise RuntimeError('CI policy/configuration changed; fresh investigation required')
+                    paths = git(context, 'diff', '--name-only', f'{context["base_sha"]}...HEAD').splitlines()
+                    if len(paths) > 300:
+                        raise RuntimeError('GitHub path-filter evaluation is ambiguous above 300 changed files')
+                    expected = expected_ci(discovery, context['base'], context['branch'], paths)
+                    # REST identities verify app-bound checks, not just rollup display names.
+                    pages = gh('api', f'repos/{context["repository"]}/commits/{context["reviewed_sha"]}/check-runs?filter=latest&per_page=100', '--paginate', '--slurp')
+                    registered = [item for page in pages for item in page['check_runs']]
+                    identities = ci_identities(registered, expected, context['reviewed_sha'])
+                    ready = assess(checks, [entry['name'] for entry in expected]) and identities
+                except (RuntimeError, ValueError, yaml.YAMLError) as error:
+                    context.update(phase='ci_failed', blocker=str(error))
                     save(path, context)
                     raise
                 if ready and pr['mergeable'] != 'UNKNOWN':
@@ -490,6 +801,7 @@ steps:
                 context.update(phase='merge_blocked', blocker='GitHub PR is conflicting, draft, or has requested changes')
                 save(path, context)
                 raise RuntimeError('PR is blocked, conflicting, draft, or has requested changes')
+            save(path.parent / 'ci-evidence.json', {'head': context['head'], 'base': context['base_sha'], 'expected': expected, 'rollup': checks, 'check_runs': registered})
             context.update(ci_sha=context['head'], phase='ready', ci_checks=len(checks))
             return save(path, context)
 
@@ -507,13 +819,6 @@ steps:
             issue = int(os.environ['ISSUE_NUMBER'])
             if issue < 0:
                 raise ValueError('issue_number cannot be negative')
-            validation = os.environ['VALIDATION_COMMAND'].strip()
-            if not validation:
-                raise ValueError('validation_command must be an explicit real project test command')
-            required_checks = [item.strip() for item in os.environ['REQUIRED_CHECKS'].split(',') if item.strip()]
-            allow_no_ci = os.environ['ALLOW_NO_CI'] == 'true'
-            if not required_checks and (not allow_no_ci):
-                raise ValueError('Specify required_checks or explicitly set allow_no_ci=true')
             mode = os.environ.get('WORKSPACE_MODE', 'persistent')
             author = os.environ.get('GIT_AUTHOR_NAME', 'Dagu Issue Resolver')
             email = os.environ.get('GIT_AUTHOR_EMAIL', 'dagu-resolver@users.noreply.github.com')
@@ -523,7 +828,7 @@ steps:
             repo = repository(metadata['full_name'])
             base = os.environ['BASE_BRANCH'] or metadata['default_branch']
             execute(['git', 'check-ref-format', '--branch', base])
-            context = {'repository': repo, 'issue': issue, 'base': base, 'checkout': checkout, 'url': metadata['clone_url'], 'lease': str(ROOT / 'leases' / repo), 'run': os.environ['RUN_ID'], 'validation': validation, 'auto_merge': os.environ['AUTO_MERGE'] == 'true', 'required_checks': required_checks, 'allow_no_ci': allow_no_ci, 'merged': False, 'planned': False, 'phase': 'prepared', 'artifact_dir': str(path.parent), 'workspace_root': str(ROOT), 'workspace_mode': mode, 'author_name': author, 'author_email': email}
+            context = {'repository': repo, 'issue': issue, 'base': base, 'checkout': checkout, 'url': metadata['clone_url'], 'lease': str(ROOT / 'leases' / repo), 'run': os.environ['RUN_ID'], 'auto_merge': os.environ.get('AUTO_MERGE', 'true') == 'true', 'merged': False, 'planned': False, 'phase': 'prepared', 'artifact_dir': str(path.parent), 'workspace_root': str(ROOT), 'workspace_mode': mode, 'author_name': author, 'author_email': email}
             for item in [ROOT, ROOT / 'repos', ROOT / 'worktrees', ROOT / 'leases']:
                 if item.is_symlink():
                     raise ValueError('Workspace roots must not be symlinks')
@@ -601,7 +906,7 @@ steps:
                 context.update(planning_head=git(context, 'rev-parse', 'HEAD'), planning_status=git(context, 'status', '--porcelain'), planning_diff=hashlib.sha256(git(context, 'diff', '--binary', 'HEAD').encode()).hexdigest())
             return save(path, context)
 
-        def validate_plan(report: dict, validation: str) -> None:
+        def validate_plan(report: dict) -> None:
             if not isinstance(report.get('summary'), str) or not report['summary'].strip():
                 raise ValueError('Planning summary must be nonempty')
             for field in ('files', 'steps', 'risks'):
@@ -610,30 +915,43 @@ steps:
                     raise ValueError(f'Planning {field} must be a list of nonempty strings')
                 if field != 'risks' and (not items):
                     raise ValueError(f'Planning {field} cannot be empty')
-            if report.get('validation') != validation:
-                raise ValueError('Planning must preserve the operator validation command')
             if not isinstance(report.get('report_markdown'), str) or not report['report_markdown'].strip():
                 raise ValueError('Planning requires the full original investigation report')
             validate_checks(report.get('checks'))
 
         def record_plan(path: Path) -> dict:
             context = load(path)
+            if context.get('planned'):
+                raise RuntimeError('Plan is write-once per run; refusing replacement')
             raw = sys.stdin.read()
             (path.parent / 'planning-agent.txt').write_text(raw)
-            report = agent_object(raw, {'summary', 'files', 'steps', 'risks', 'validation', 'checks', 'report_markdown'})
-            validate_plan(report, context['validation'])
-            validate_checks(report['checks'], Path(context['worktree']))
-            for check in report['checks']:
-                if check['command'].strip():
-                    resolve(check['command'], check['kind'], Path(context['worktree']), context['validation'])
+            try:
+                report = agent_object(raw, {'summary', 'files', 'steps', 'risks', 'checks', 'report_markdown', 'inspected_sources', 'blockers'})
+                validate_plan(report)
+                discovery = load(path.parent / 'discovery.json')
+                if report['inspected_sources'] != discovery['sources']:
+                    raise ValueError('Investigation must inspect the recorded repository instructions/scripts/configuration/workflows')
+                if report['blockers'] != []:
+                    raise ValueError(f'Validation/CI investigation ambiguous or unavailable: {report["blockers"]}')
+                validate_checks(report['checks'], Path(context['worktree']))
+                paths = report['files']
+                if any(not safe_source(name) for name in paths):
+                    raise ValueError('Plan files must be exact repository-relative paths, not prose')
+                expected = expected_ci(discovery, context['base'], context['branch'], paths)
+                report.update(discovery=discovery, expected_ci=expected)
+            except (ValueError, RuntimeError) as error:
+                context.update(phase='discovery_blocked', blocker=str(error))
+                save(path, context)
+                raise
             if git(context, 'rev-parse', 'HEAD') != context['planning_head'] or git(context, 'status', '--porcelain') != context['planning_status'] or hashlib.sha256(git(context, 'diff', '--binary', 'HEAD').encode()).hexdigest() != context['planning_diff']:
                 raise RuntimeError('Planning changed the worktree; implementation blocked')
             (path.parent / 'plan.json').write_text(json.dumps(report, indent=2))
-            body = report['report_markdown'] + '\n\n' + (f'## Dagu implementation plan\n\nIssue: #{context['issue']}\nInvestigated commit: `{context['planning_head']}`\n\n{report['summary']}\n\n### Files and changes\n' + '\n'.join((f'- {item}' for item in report['files'])) + '\n\n### Implementation and tests\n' + '\n'.join((f'{index}. {item}' for index, item in enumerate(report['steps'], 1))) + '\n\n### Risks and edge cases\n' + '\n'.join((f'- {item}' for item in report['risks'])) + '\n\n### Validation\n```sh\n' + report['validation'] + '\n```\n')
+            validation = '\n'.join(command for item in report['checks'] for command in item['commands'])
+            body = report['report_markdown'] + '\n\n' + (f'## Dagu implementation plan\n\nIssue: #{context['issue']}\nInvestigated commit: `{context['planning_head']}`\n\n{report['summary']}\n\n### Files and changes\n' + '\n'.join((f'- {item}' for item in report['files'])) + '\n\n### Implementation and tests\n' + '\n'.join((f'{index}. {item}' for index, item in enumerate(report['steps'], 1))) + '\n\n### Risks and edge cases\n' + '\n'.join((f'- {item}' for item in report['risks'])) + '\n\n### Validation\n```sh\n' + validation + '\n```\n\nExpected CI: ' + ', '.join(item['name'] for item in expected) + '\n')
             artifact = path.parent / 'implementation-plan.md'
             artifact.write_text(body)
             execute(['gh', 'issue', 'comment', str(context['issue']), '--repo', context['repository'], '--body-file', str(artifact)])
-            context.update(planned=True, phase='planned', validation_checks=report['checks'])
+            context.update(planned=True, phase='planned', validation_checks=report['checks'], plan_digest=hashlib.sha256((path.parent / 'plan.json').read_bytes()).hexdigest())
             return save(path, context)
 
         def record_implementation(path: Path) -> dict:
@@ -721,7 +1039,7 @@ steps:
             reportfile = path.parent / 'review.json'
             if reportfile.exists():
                 reasons.extend((finding['message'] for finding in load(reportfile).get('findings', []) if finding.get('severity') in ('critical', 'high')))
-            if context.get('phase') in ('ci_failed', 'merge_blocked', 'validation_failed'):
+            if context.get('phase') in ('ci_failed', 'merge_blocked', 'validation_failed', 'discovery_blocked'):
                 reasons.append(context.get('blocker', f'Issue resolution stopped at {context['phase']}'))
             if not reasons:
                 return context
@@ -750,7 +1068,7 @@ steps:
             context = load(path)
             try:
                 run_checks(context, context['worktree'], path.parent, 'validation')
-            except (RuntimeError, subprocess.TimeoutExpired):
+            except (RuntimeError, ValueError, subprocess.TimeoutExpired):
                 context['phase'] = 'validation_failed'
                 save(path, context)
                 raise
@@ -887,6 +1205,7 @@ steps:
                     raise RuntimeError('Telegram request failed; credentials and URL withheld') from None
                 if not result.get('ok') or not result.get('result', {}).get('message_id'):
                     raise RuntimeError('Telegram did not confirm message delivery')
+                save(path.parent / 'telegram-delivery.json', {'confirmed': True, 'message_id': result['result']['message_id'], 'phase': phase})
                 print('Telegram API confirmed message delivery', file=sys.stderr)
                 return context
             finally:
@@ -896,10 +1215,10 @@ steps:
             if len(sys.argv) > 1 and sys.argv[1] == 'agent':
                 return run_agent()
             parser = argparse.ArgumentParser(description=__doc__)
-            parser.add_argument('phase', choices=['prepare', 'select', 'resolve-models', 'snapshot', 'record-plan', 'diagnose', 'record-implementation', 'record-publication', 'validate', 'publish', 'review-context', 'review-gate', 'ci-gate', 'merge', 'clean-review', 'finish'])
+            parser.add_argument('phase', choices=['prepare', 'select', 'resolve-models', 'snapshot', 'discover', 'record-plan', 'diagnose', 'record-implementation', 'record-publication', 'validate', 'publish', 'review-context', 'review-gate', 'ci-gate', 'merge', 'clean-review', 'finish'])
             parser.add_argument('--state', required=True, type=Path)
             args = parser.parse_args()
-            actions = {'prepare': prepare, 'select': select, 'resolve-models': resolve_models, 'snapshot': snapshot, 'record-plan': record_plan, 'diagnose': diagnose, 'record-implementation': record_implementation, 'record-publication': record_publication, 'validate': validate, 'publish': publish, 'review-context': lambda path: review_context(path, os.environ['RUN_ID']), 'review-gate': review_gate, 'ci-gate': ci_gate, 'merge': merge, 'clean-review': clean_review, 'finish': finish}
+            actions = {'prepare': prepare, 'select': select, 'resolve-models': resolve_models, 'snapshot': snapshot, 'discover': discover, 'record-plan': record_plan, 'diagnose': diagnose, 'record-implementation': record_implementation, 'record-publication': record_publication, 'validate': validate, 'publish': publish, 'review-context': lambda path: review_context(path, os.environ['RUN_ID']), 'review-gate': review_gate, 'ci-gate': ci_gate, 'merge': merge, 'clean-review': clean_review, 'finish': finish}
             try:
                 print(json.dumps(actions[args.phase](args.state)))
                 return 0
@@ -922,7 +1241,7 @@ steps:
         ## Dagu execution contract
 
         Use the exact repository, issue, branch, worktree, PR, artifact directory and
-        validation command supplied by the calling step. Never select another issue.
+        discovered validation plan supplied by the calling step. Never select another issue.
         Read repository instructions (AGENTS.md, CLAUDE.md and relevant nested rules).
         The project may not contain these original command files: this embedded prompt
         is the executable specification, not a request to find an installed command.
@@ -1299,20 +1618,46 @@ steps:
         ````
         ## Validation and scope consistency
 
-        Preserve the exact operator validation command. In addition, inspect the actual
-        project scripts/config and identify its type-check, lint/format, tests and build
-        checks. Return one checks entry per category: kind, command, reason. An absent
-        category uses command="" plus a concrete evidence-based reason; never invent a
-        command, install a guessed dependency, or claim a nonexistent check passed.
-        Additional commands must come from check-catalog.json's known project scripts
-        and configurations. Do not embed shell expressions, unlisted commands, or
-        arguments into them. Unsupported custom checks require operator authorization
-        through validation_command, not model-generated shell execution.
-        The tests category is mandatory: its command must be the exact operator validation
-        command if no additional cataloged test command applies. An empty catalog does
-        not make operator-supplied tests N/A. Do not leave tests.command empty.
-        Do not use fallback command chains that hide failures. The workflow executes
-        the operator command and each distinct applicable planned command independently.
+        Inspect every source listed in discovery.json: repository instructions, nested
+        rules, Makefile targets, package scripts, project configuration and GitHub workflows.
+        Identify type-check, lint/format, tests and build plus composite validation gates.
+        Return one checks entry per category: kind, commands (array), reason. Include every
+        catalog entry in its category using exact shlex-compatible argv, including nested
+        project cwd wrappers. An absent category uses commands=[] with concrete evidence;
+        cataloged checks cannot be omitted or N/A. Tests must have a real entrypoint.
+        Inspect instructions and workflow run steps for additional applicable checks not
+        covered by the catalog. Record any unsupported custom command, contradictory
+        instructions, unavailable dependencies or ambiguous CI in blockers; do not guess,
+        invent a check, or request replacement caller parameters. Confirm static matrix,
+        reusable job names, branch/path/activity filters and effective branch CI policy.
+        Never execute arbitrary model-generated shell, fallback chains or unlisted argv.
+        The deterministic runtime verifies the plan and executes distinct commands directly.
+        Return inspected_sources exactly as listed, blockers=[] only with evidence that
+        discovery is unambiguous. This write-once plan is reused for repair and review.
+
+        ## Discovery scope and phase boundaries
+
+        This run executes the supplied canonical YAML locally. A repository's separate
+        manually dispatched resolver is not a validation command or CI prerequisite for
+        this issue. Inspect it as context, but do not execute/migrate it or block an unrelated
+        issue merely because its invocation contract differs. workflow_scope in discovery.json
+        distinguishes automatic CI candidates from ancillary/manual-only workflows. Apply
+        branch/path filters to the exact files you plan to change; reusable jobs are relevant
+        when called by applicable automatic CI, not merely because their files exist.
+
+        policy.availability.kind=feature_not_supported has a specific verified meaning:
+        verified_criteria records an unprotected private personal repository with confirmed
+        administrator access and exact entitlement failures from both effective-rules and
+        protection APIs. GitHub documents that these policies require Pro for private personal
+        repositories. Recheck those facts with read-only gh APIs if needed. This is proven
+        unsupported policy functionality, not permission to ignore unknown/inaccessible policy.
+        Other access errors, protected branches or inconsistent criteria remain blockers.
+        Nonempty workflow-derived CI expectations must still register and pass at the PR head.
+
+        Planning establishes the validation/CI plan; it cannot certify future PR readiness.
+        Pending future PR creation, CI completion and independent review are later mandatory
+        Dagu gates, not planning blockers. Report actual unresolved discovery ambiguity, not
+        the normal fact that these later phases have not executed yet.
 
         Return the structured fields required by the caller, including report_markdown
         with the full original investigation template. Files/code snippets must be real.
@@ -1332,7 +1677,7 @@ steps:
         ## Dagu execution contract
 
         Use the exact repository, issue, branch, worktree, PR, artifact directory and
-        validation command supplied by the calling step. Never select another issue.
+        discovered validation plan supplied by the calling step. Never select another issue.
         Read repository instructions (AGENTS.md, CLAUDE.md and relevant nested rules).
         The project may not contain these original command files: this embedded prompt
         is the executable specification, not a request to find an installed command.
@@ -1589,7 +1934,7 @@ steps:
         ## Dagu execution contract
 
         Use the exact repository, issue, branch, worktree, PR, artifact directory and
-        validation command supplied by the calling step. Never select another issue.
+        discovered validation plan supplied by the calling step. Never select another issue.
         Read repository instructions (AGENTS.md, CLAUDE.md and relevant nested rules).
         The project may not contain these original command files: this embedded prompt
         is the executable specification, not a request to find an installed command.
@@ -1707,7 +2052,7 @@ steps:
         ## Dagu execution contract
 
         Use the exact repository, issue, branch, worktree, PR, artifact directory and
-        validation command supplied by the calling step. Never select another issue.
+        discovered validation plan supplied by the calling step. Never select another issue.
         Read repository instructions (AGENTS.md, CLAUDE.md and relevant nested rules).
         The project may not contain these original command files: this embedded prompt
         is the executable specification, not a request to find an installed command.
@@ -1732,7 +2077,7 @@ steps:
            run logs/check details and review comments, not just the summary status.
         2. Perform root-cause analysis using the original 5 Whys with command/file evidence.
         3. Plan the scoped repair and implement it in the same assigned issue worktree.
-        4. Re-run the exact operator command and applicable planned project checks.
+        4. Re-run the recorded discovered validation plan without replacing or weakening it.
         5. Return evidence and updated task status. Dagu commits/pushes and observes CI;
            a bounded second DAG attempt replaces the original unbounded "iterate till passing".
 
@@ -1774,7 +2119,7 @@ steps:
         ## Dagu execution contract
 
         Use the exact repository, issue, branch, worktree, PR, artifact directory and
-        validation command supplied by the calling step. Never select another issue.
+        discovered validation plan supplied by the calling step. Never select another issue.
         Read repository instructions (AGENTS.md, CLAUDE.md and relevant nested rules).
         The project may not contain these original command files: this embedded prompt
         is the executable specification, not a request to find an installed command.
@@ -1937,7 +2282,14 @@ steps:
         ---
         ## Phase 4: VALIDATE - Run actual project checks
 
-        Execute the exact operator command and every distinct applicable type-check,
+        Review the recorded discovery scope as well as the changed code. Ancillary manual-only
+        workflows are not validation prerequisites for an unrelated issue. Proven policy-feature
+        absence with the recorded verified_criteria does not waive configured automatic CI:
+        Dagu verifies expected app-bound checks at this reviewed head after this review step.
+        Do not claim future CI passed; block genuine ambiguity or failed evidence, not merely
+        the fact that the later deterministic CI gate has not executed yet.
+
+        Execute the recorded discovered plan and every distinct applicable type-check,
         lint/format, tests and build command from plan.json. Read actual project scripts;
         do not invent commands or use npm/bun fallback chains that conceal failures.
         Absent checks are N/A with evidence-based reasons, never reported as passed.
@@ -2126,10 +2478,7 @@ steps:
       - REPOSITORY: ${params.repository}
       - ISSUE_NUMBER: ${params.issue_number}
       - BASE_BRANCH: ${params.base_branch}
-      - VALIDATION_COMMAND: ${params.validation_command}
       - AUTO_MERGE: ${params.auto_merge}
-      - REQUIRED_CHECKS: ${params.required_checks}
-      - ALLOW_NO_CI: ${params.allow_no_ci}
     run: python3 "$HELPER" prepare --state "$STATE"
     output:
       context:
@@ -2313,8 +2662,11 @@ steps:
   - id: diagnose
     depends: [load_context]
     run: python3 "$HELPER" diagnose --state "$STATE"
-  - id: plan
+  - id: discover
     depends: [diagnose]
+    run: python3 "$HELPER" discover --state "$STATE"
+  - id: plan
+    depends: [discover]
     preconditions:
       - condition: ${load_context.output.data.planned}
         expected: 'false'
@@ -2333,16 +2685,15 @@ steps:
         Pinned repository: ${params.repository}; issue: ${params.issue_number}.
         Run context: ${params.state}; issue/discussion: ${load_context.output.data.artifact_dir}/issue.json.
         Also read repair-context.json and check-catalog.json in that artifact directory.
-        Investigate current code. Supplemental check commands must be exact argv-compatible
-        entries from that deterministic catalog; only the explicit operator command may
-        contain shell logic. Unsupported project-specific gates belong in the operator command.
-        The tests checks entry MUST use the exact operator command below if there is no
-        supplemental cataloged test command. Never leave tests.command empty or mark tests N/A.
-        Preserve this exact operator validation command:
-        ${load_context.output.data.validation}
-        Return exactly one JSON object: summary (string), files (nonempty string array),
-        steps (nonempty string array), risks (string array), validation (exact command),
-        checks (four objects with kind typecheck/lint/tests/build, command, reason),
+        Read discovery.json and inspect every listed source, including repository instructions,
+        scripts/configuration and relevant GitHub workflows. Use its catalog entries exactly;
+        do not invent commands, execute generated shell strings, or omit applicable checks.
+        Record unsupported/ambiguous validation or CI as blockers rather than guessing.
+        Return exactly one JSON object: summary (string), files (nonempty array of exact
+        repository-relative paths only; describe changes inside report_markdown),
+        steps (nonempty string array), risks (string array), inspected_sources (exact discovery
+        source list), blockers (string array), checks (four objects with kind
+        typecheck/lint/tests/build, commands array of shlex.join(catalog argv), reason),
         report_markdown (complete original investigation template with actual evidence).
         Leave the worktree unchanged. The workflow writes and posts the complete plan.
   - id: publish_plan
@@ -2373,7 +2724,7 @@ steps:
         not files; work one task at a time and only mark it complete after real verification.
         Do not create task-tracking files or write outside the issue worktree. Do not change
         artifacts, runtime/workflow files, credentials, branches, or publication state.
-        Operator validation: ${load_context.output.data.validation}
+        Reuse the recorded checks in plan.json; no rediscovery or replacement validation.
         Return one JSON object with status (ready or blocked), deviations (string array),
         and report_markdown (full implementation report: changes, plan adherence/deviations,
         exact validation evidence, self-review, manual verification, and remaining blockers).
@@ -2450,8 +2801,8 @@ steps:
         validation-results.json and publication.json in
         ${load_context.output.data.artifact_dir}. Review full changed files and relevant patterns,
         the diff from origin/${load_context.output.data.base}, plan adherence and deviations.
-        Run the exact operator command and applicable planned typecheck/lint/tests/build checks.
-        Operator command: ${load_context.output.data.validation}
+        Run the recorded discovered typecheck/lint/tests/build plan, including composite gates.
+        Verify discovery evidence and expected CI; do not weaken or replace the saved plan.
         Return one JSON object: head_sha (actual HEAD), verdict (pass or block), summary,
         findings (array with severity critical/high/medium/low, message containing file:line,
         impact/evidence and recommended fix), report_markdown (the full original review template).

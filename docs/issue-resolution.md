@@ -19,14 +19,14 @@ basic preflight + repository ownership lease
   -> clean merged worktree -> Telegram outcome -> release lease
 ```
 
-The workflow has no schedule. Default `auto_merge=true` permits merging after
-validation, independent review, required CI, and remote-state checks pass. Set it
-to `false` to leave the validated, reviewed PR for manual review and merging.
+The workflow has no schedule. Default `auto_merge=true` permits merging only after
+validation, independent review, expected CI, and current head/base checks pass.
+Explicitly set it to `false` to leave the validated, reviewed PR open for manual review.
 
 ## Prerequisites
 
 - Dagu 2.24.0 and OpenCode 2.0.28 are the versions exercised by the runner example.
-- Python 3.11+, Bash, Git, and GitHub CLI are available to the execution user.
+- Python 3.11+ with PyYAML 6.0.3, Bash, Git, and GitHub CLI are available to the execution user.
 - Project dependencies and project validation commands are available. The workflow
   does not guess dependency-install commands.
 - Target-repository GitHub access and Telegram bot/chat credentials are configured.
@@ -38,11 +38,8 @@ to `false` to leave the validated, reviewed PR for manual review and merging.
 | --- | --- |
 | `repository` | Required GitHub `owner/name`; public and accessible private repositories are supported. |
 | `issue_number` | `0`: select an open issue, preferring a resolver PR already in progress. Set a number to pin it explicitly. |
-| `validation_command` | Required trusted operator shell command for the project's actual validation. |
 | `base_branch` | Empty: detect the target repository's default branch. |
-| `required_checks` | Comma-separated exact GitHub check names; checks must register and succeed. |
-| `allow_no_ci` | `false`; explicitly opt in only for a repository without CI. Present failing checks still block. |
-| `auto_merge` | `true`; set to `false` to disable merging. When enabled, merge only after validation/review/CI and remote-state checks. |
+| `auto_merge` | `true`; merging requires validation/review/CI and remote-state checks. Set to `false` for manual review. |
 | `workspace_root` | `/var/lib/dagu/workspaces`; override with an absolute writable directory on your host. |
 | `workspace_mode` | `persistent` or `ephemeral`; runner example uses ephemeral. |
 | `deployment_env_file` | `/var/lib/dagu/issue-resolver.env`; override with your protected dotenv file, or an empty file when injecting environment credentials. |
@@ -158,10 +155,41 @@ trigger their CI. Keep secrets scoped to the repositories you intentionally allo
 
 ## Validation and recovery
 
-The planner classifies type-check, lint/format, tests, and build. Cataloged checks
-cannot be marked N/A. Additional commands must map to actual known project
-scripts/config; only the explicit operator command is executed as arbitrary shell
-syntax. Failures are not hidden behind alternate-command fallback chains.
+The caller supplies a repository and optionally an issue number, not project checks.
+During mandatory investigation the planner inspects repository instructions (including
+nested rules), Makefiles, package scripts, project configuration and GitHub workflows.
+`discovery.json` records sources, repository-backed argv and effective branch policy.
+The write-once `plan.json` includes that discovery and classifies type-check,
+lint/format, tests and build; composite validation targets are included. Every catalog
+entry must be included. An absent category needs an evidence-based N/A reason; tests
+cannot be absent. Unsupported checks or conflicting instructions are explicit blockers.
+Commands execute as validated argv, never unrestricted generated shell strings.
+Documented/workflow `python3 -m unittest discover` entrypoints are supported when
+their fixed discovery flags point to existing repository test files. Unknown flags,
+shell expressions, traversal and missing test files are rejected rather than inferred.
+Nested commands use a fixed `env -C <relative-directory>` cwd wrapper (GNU env required).
+Dependencies must be available in both implementation and independent review worktrees.
+
+CI expectations combine accessible branch protection/effective rulesets and applicable
+GitHub workflows. Static matrices (including include/exclude) and local reusable jobs
+are expanded; branch/path filters are evaluated against the planned paths and then
+the actual PR diff. Policy-required checks stay required even if a workflow is filtered
+out. Empty expectations or missing/pending registration cannot pass. Expected jobs must
+succeed; app-bound identities are verified through check runs at the reviewed SHA.
+`ci-evidence.json` records expectations, rollup and check-run evidence. Changed base
+commits, CI configuration, policy or plan invalidate evidence and require a new run.
+
+Discovery fails closed for unavailable or ambiguous policy APIs. A narrowly verified
+exception records proven feature absence: an unprotected private personal repository
+with verified administrator access, where both effective-rules and protection APIs
+explicitly report that the feature requires GitHub Pro. This is not a permission-error
+fallback; workflow-derived expected CI must still be nonempty, register and succeed.
+Discovery also blocks dynamic matrices/names, remote or
+cyclic reusable workflows, conditional/allowed-failure jobs, advanced glob patterns,
+PR activity filters that cannot guarantee publication/repair CI, organization-required
+workflows, and diffs over GitHub's 300-file path-filter limit. These are limitations,
+not requests for repository-specific replacement inputs or permission to skip CI.
+`telegram-delivery.json` records the API-confirmed outcome without chat/token values.
 
 Repairs use the agent TODO tool, not task-ledger files. A maximum of two full
 attempts prevents an unbounded inference loop. CI waiting is bounded. Follow-up
@@ -196,8 +224,21 @@ isolated workers for untrusted repositories. Fork PRs, ambiguous linked PRs,
 conflicting worktree ownership, changed PR heads/bases, failing CI, and blocking
 reviews fail closed. Custom workspace OpenCode configuration is not overwritten.
 
-The issue-resolution flow and model selection were exercised on a fresh GitHub
-runner, including plan, implementation, independent review, real CI, merge/closure,
-Telegram, and artifact upload. The packaged tests validate the embedded artifact
-without inference. That does not prove every provider/model route or every
-possible project, blocker, or merge-conflict scenario.
+The packaged tests execute runtime code extracted from the deployable YAML and verify
+real Dagu materialization. Local acceptance on the approved private test repository
+also exercised this canonical workflow with discovered unittest validation, a published
+investigation plan, implementation and publication, a separate independent review
+worktree, expected app-bound GitHub CI at the current head/base, and API-confirmed
+Telegram delivery. No project validation or check-name inputs were supplied.
+
+Initial acceptance kept automatic merging disabled. After explicit operator authorization,
+the canonical runtime re-ran validation and the current head/base/CI gates, merged the
+same independently reviewed PR, verified issue closure, removed the issue worktree,
+and confirmed the merged Telegram outcome. The default is now `auto_merge=true`;
+unapproved acceptance tests must still explicitly set it to `false`.
+
+The independent review explicitly reported a transient GitHub API failure rather than claiming CI passed;
+the subsequent deterministic CI gate independently obtained and verified successful
+check-run evidence. Dynamic/unsupported discovery cases remain fail-closed, and a
+future behavior change needs a fresh local acceptance run. GitHub Actions is an
+optional deployment target, not the primary acceptance host.

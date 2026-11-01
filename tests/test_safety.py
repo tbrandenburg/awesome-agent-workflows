@@ -1,8 +1,10 @@
 """High-signal runtime safety tests using real filesystem and Git operations."""
 
 import json
+import hashlib
 import os
 import subprocess
+import sys
 import tarfile
 
 from runtime_case import RuntimeCase, embedded_source
@@ -12,7 +14,7 @@ def checks(command: str) -> list[dict]:
     return [
         {
             "kind": kind,
-            "command": command if kind == "tests" else "",
+            "commands": [command] if kind == "tests" else [],
             "reason": "Isolated fixture",
         }
         for kind in ("typecheck", "lint", "tests", "build")
@@ -32,21 +34,18 @@ class SafetyTests(RuntimeCase):
 
     def test_ci_missing_pending_and_failing_checks_block(self) -> None:
         assess = self.runtime["assess"]
-        self.assertFalse(assess([], ["test"], False))
-        self.assertFalse(
-            assess([{"name": "test", "status": "IN_PROGRESS"}], ["test"], False)
-        )
+        self.assertFalse(assess([], ["test"]))
+        self.assertFalse(assess([{"name": "test", "status": "IN_PROGRESS"}], ["test"]))
         self.assertTrue(
             assess(
                 [{"name": "test", "status": "COMPLETED", "conclusion": "SUCCESS"}],
                 ["test"],
-                False,
             )
         )
         with self.assertRaises(RuntimeError):
-            assess([{"name": "test", "conclusion": "FAILURE"}], [], True)
+            assess([{"name": "test", "conclusion": "FAILURE"}], ["test"])
         with self.assertRaises(ValueError):
-            assess([], [], False)
+            assess([], [])
 
     def test_retargeted_or_changed_pr_invalidates_evidence(self) -> None:
         context = {"base": "main", "branch": "resolver/issue-1", "head": "abc123"}
@@ -66,39 +65,51 @@ class SafetyTests(RuntimeCase):
             with self.subTest(key=key), self.assertRaises(RuntimeError):
                 verify(context, {**pr, key: value}, "head")
 
+    def test_changed_base_commit_invalidates_investigation(self) -> None:
+        verify = self.runtime["verify_base"]
+        context = {"base_sha": "investigated-base"}
+        self.assertIsNone(verify(context, {"commit": {"sha": "investigated-base"}}))
+        with self.assertRaisesRegex(RuntimeError, "base commit changed"):
+            verify(context, {"commit": {"sha": "new-base"}})
+
     def test_cataloged_checks_cannot_be_omitted_or_injected(self) -> None:
         (self.root / "package.json").write_text(
-            json.dumps({"scripts": {"lint": "eslint ."}})
+            json.dumps({"scripts": {"lint": "eslint .", "test": "node test.js"}})
         )
-        with self.assertRaisesRegex(ValueError, "cannot be marked"):
-            self.runtime["validate_checks"](checks("make test"), self.root)
+        with self.assertRaisesRegex(ValueError, "cannot be omitted"):
+            self.runtime["validate_checks"](checks("npm run test"), self.root)
         resolve = self.runtime["resolve"]
         self.assertEqual(
-            resolve("npm run lint", "lint", self.root, "make test"),
+            resolve("npm run lint", "lint", self.root),
             ["npm", "run", "lint"],
         )
         with self.assertRaises(ValueError):
-            resolve("npm run lint; echo unsafe", "lint", self.root, "make test")
+            resolve("npm run lint; echo unsafe", "lint", self.root)
 
     def test_failed_validation_preserves_work_and_redacts_artifacts(self) -> None:
         script = self.root / "resolver.py"
         script.write_text(embedded_source())
         marker = self.root / "unfinished.py"
         marker.write_text("print('keep')\n")
-        command = "printf '%s' \"$ANTHROPIC_API_KEY\"; exit 17"
+        command = "make test"
+        (self.root / "Makefile").write_text(
+            "test:\n\t@printf '%s' \"$$ANTHROPIC_API_KEY\"; exit 17\n"
+        )
+        plan = self.root / "plan.json"
+        plan.write_text(json.dumps({"checks": checks(command)}))
         state = self.root / "context.json"
         state.write_text(
             json.dumps(
                 {
                     "planned": True,
-                    "validation": command,
                     "validation_checks": checks(command),
+                    "plan_digest": hashlib.sha256(plan.read_bytes()).hexdigest(),
                     "worktree": str(self.root),
                 }
             )
         )
         result = subprocess.run(
-            ["python3", "-I", str(script), "validate", "--state", str(state)],
+            [sys.executable, "-I", str(script), "validate", "--state", str(state)],
             cwd=self.root,
             env={
                 "PATH": os.environ["PATH"],
@@ -109,7 +120,8 @@ class SafetyTests(RuntimeCase):
             timeout=15,
         )
         self.assertEqual(result.returncode, 1)
-        self.assertIn("exit 17", result.stderr)
+        self.assertIn("validation command(s) failed", result.stderr)
+        self.assertIn("Error 17", (self.root / "validation.log").read_text())
         self.assertEqual(marker.read_text(), "print('keep')\n")
         log = (self.root / "validation.log").read_text()
         self.assertIn("[REDACTED]", log)

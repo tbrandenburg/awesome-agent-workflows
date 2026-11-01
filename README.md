@@ -32,18 +32,20 @@ credentials, model selection, recovery, and safety boundaries.
 The intended deployment is your own Dagu instance. It can run this workflow
 against any GitHub repository you can access; GitHub Actions is an optional
 alternative deployment, not a requirement. Install Dagu, OpenCode V2, Python
-3.11+, Git, and GitHub CLI on the machine that runs Dagu. Configure GitHub and
+3.11+ with PyYAML (`python3 -m pip install PyYAML==6.0.3`), Git, and GitHub CLI on the machine that runs Dagu. Configure GitHub and
 Telegram credentials plus at least one usable inference provider. From this
 checkout, start a run directly:
 
 ```bash
 dagu start workflows/issue-resolution.yaml --params \
-  'repository=owner/repository issue_number=123 validation_command="make test" required_checks=test workspace_root="/absolute/path/to/workspaces" deployment_env_file="/absolute/path/to/deployment.env"'
+  'repository=owner/repository issue_number=123 workspace_root="/absolute/path/to/workspaces" deployment_env_file="/absolute/path/to/deployment.env"'
 ```
 
-By default, `auto_merge=true`: after validation, independent review, required CI,
-and remote-state checks pass, the workflow can merge the PR. Set
-`auto_merge=false` if you want to review the PR yourself instead. Never run it
+By default, `auto_merge=true`: the workflow may merge after its deterministic gates pass.
+Agents investigate repository instructions, scripts/configuration and GitHub workflows;
+one verified discovery plan drives validation, repair and independent review. Missing
+or ambiguous validation/CI blocks publication or merging rather than guessing.
+Set `auto_merge=false` to leave the PR open for manual review instead. Never run it
 against untrusted repositories: it executes project code and agent-proposed edits
 with the host user's privileges.
 For a long-running Dagu service, install or symlink the workflow file into that
@@ -64,6 +66,12 @@ are masked. The runner wrapper enforces that visibility boundary.
 The [validation workflow](.github/workflows/validate.yml) needs no inference
 credentials and makes no model requests. It checks deployable YAML and tests
 the runtime extracted from the published artifact itself.
+
+Acceptance testing starts on the local Dagu host, not an Actions runner. The
+flow has been exercised with real discovered validation, a published PR, independent
+review, expected CI, confirmed Telegram delivery, and an explicitly authorized
+merge with verified issue closure. See the
+[standing acceptance-test policy](/AGENTS.md#develop-and-validate).
 
 ## Developing and contributing
 
