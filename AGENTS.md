@@ -15,7 +15,7 @@ This repository contains portable Dagu workflows for software-engineering tasks.
 
    Use `issue_number=0` to select an open issue. `auto_merge` defaults to `true`, so the workflow can merge after its validation, independent review, required CI, and remote-state gates pass. Set `auto_merge=false` when you want to review the PR before merging. Never run against an untrusted repository. See [all parameters, deployment options, recovery, and safety details](docs/issue-resolution.md).
 
-For a persistent Dagu service, place or symlink the workflow file into that service's DAG directory and verify that service discovers it. Direct CLI execution does not require a symlink or scheduler. See [local deployment](docs/issue-resolution.md#local-deployment); GitHub Actions setup is optional.
+The local Dagu service has `DAGU_HOME=/var/lib/dagu`; its workflow is symlinked at `/var/lib/dagu/dags/issue-resolution.yaml` to `workflows/issue-resolution.yaml` in this checkout. Verify discovery with `DAGU_HOME=/var/lib/dagu dagu ls issue-resolution`. For another Dagu instance, check that service's `DAGU_HOME` and DAG directory before placing or symlinking the workflow; the interactive CLI may use different configuration. Direct CLI execution does not require a symlink or scheduler. See [local deployment](docs/issue-resolution.md#local-deployment); GitHub Actions setup is optional.
 
 ## Develop and validate
 
