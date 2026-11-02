@@ -6,7 +6,7 @@ This is a repository collecting valuable [DAGU](https://docs.dagu.sh) based agen
 
 ## Guidelines
 
-- Keep the structure of README.md - only add or update information in README.md if it fits into its structure
+- Keep the structure of `README.md` - only add or update information in `README.md` if it fits into its structure
 
 ## Testing
 
