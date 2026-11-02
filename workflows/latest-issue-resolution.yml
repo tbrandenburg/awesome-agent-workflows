@@ -52,8 +52,7 @@ steps:
         Address GitHub issue #${env.ISSUE_ID}. Continue its linked PR if one exists;
         otherwise work on a feature branch. Use any investigation comment as guidance,
         check it against the current code, implement a focused fix, and run relevant tests.
-        Do not create report files, task ledgers, or other workflow-tracking artifacts.
-        Keep findings and verification evidence in your response or GitHub comments.
+        Keep summary, findings and verification evidence in your response and GitHub comments.
 
   - id: commit_push
     depends: [fix_issue]
@@ -63,8 +62,7 @@ steps:
         Review the local diff, commit the related changes on a non-main branch, and push.
         Create or update a PR linked to issue #${env.ISSUE_ID}, with a concise summary and test results.
         Do not include unrelated changes.
-        Do not create report files, task ledgers, or other workflow-tracking artifacts.
-        Keep findings and verification evidence in your response or GitHub comments.
+        Keep summary, findings and verification evidence in your response and GitHub comments.
 
   - id: get_linked_pr
     depends: [commit_push]
@@ -88,32 +86,28 @@ steps:
       prompt: |
         Check GitHub issue #${env.ISSUE_ID} and its linked PR #${env.PR_ID}. If CI failures or merge
         conflicts block the PR, investigate the cause, fix it, run relevant checks,
-        and commit and push the changes. Leave it unchanged when there are no blockers.
-        Do not create report files, task ledgers, or other workflow-tracking artifacts.
-        Keep findings and verification evidence in your response or GitHub comments.
+        and commit and push the changes. Iterate till CI is green and mergable.
+        Keep summary, findings and verification evidence in your response and GitHub comments.
 
   - id: review_pr
     depends: [resolve_ci_errors]
     action: harness.run
     with:
       prompt: |
-        Review PR #${env.PR_ID} linked to GitHub issue #${env.ISSUE_ID}. Check correctness,
-        security, project conventions, and relevant tests. Post actionable findings
+        Review PR #${env.PR_ID} adversially linked to GitHub issue #${env.ISSUE_ID}.
+        Post actionable findings
         as a PR comment, noting severity and useful code references.
-        Do not create report files, task ledgers, or other workflow-tracking artifacts.
-        Keep findings and verification evidence in your response or GitHub comments.
 
   - id: merge_and_notify
     depends: [review_pr]
     action: harness.run
     with:
       prompt: |
-        Check GitHub issue #${env.ISSUE_ID} and its linked PR #${env.PR_ID}. Raise non-duplicate GitHub
+        Check GitHub issue #${env.ISSUE_ID} and its linked PR #${env.PR_ID} and its PR comments. Raise non-duplicate GitHub
         issues for unresolved high-priority review findings, failing CI, or merge blockers.
         Merge when required checks pass and no blocking findings remain. If a PR was
         processed, send a Telegram message with the outcome.
-        Do not create report files, task ledgers, or other workflow-tracking artifacts.
-        Keep findings and verification evidence in your response or GitHub comments.
+        Keep summary, findings and verification evidence in your response and GitHub comments.
 
   - id: restore_main
     depends: [merge_and_notify]

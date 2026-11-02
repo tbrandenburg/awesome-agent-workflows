@@ -1,0 +1,36 @@
+name: Checks
+
+on: [push, pull_request, merge_group]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Dagu
+        working-directory: ${{ runner.temp }}
+        run: |
+          curl --fail --silent --show-error --location --retry 3 --max-time 120 \
+            --output dagu.tar.gz \
+            https://github.com/dagucloud/dagu/releases/download/v2.25.1/dagu_2.25.1_linux_amd64.tar.gz
+          echo '3522208284247f9f22a5796221f1594bd40358cf12d32695ff4ee0f1dc058c7f  dagu.tar.gz' | sha256sum --check
+          mkdir -p dagu-bin
+          tar -xzf dagu.tar.gz -C dagu-bin dagu
+          echo "$RUNNER_TEMP/dagu-bin" >> "$GITHUB_PATH"
+
+      - name: Validate workflows
+        env:
+          DAGU_HOME: ${{ runner.temp }}/dagu-home
+        run: |
+          make --version
+          dagu version
+          make validate
