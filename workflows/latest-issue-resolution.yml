@@ -107,7 +107,7 @@ steps:
         issues for unresolved high-priority review findings, failing CI, or merge blockers.
         Merge when required checks pass and no blocking findings remain. If a PR was
         processed, send a Telegram message with the outcome.
-        Keep summary, findings and verification evidence in your response or GitHub comments.
+        Keep summary, findings and verification evidence in your response and GitHub comments.
 
   - id: restore_main
     depends: [merge_and_notify]
