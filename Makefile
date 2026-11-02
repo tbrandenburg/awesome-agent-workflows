@@ -26,6 +26,8 @@ lint: format-check
 	actionlint
 
 validate: lint
+	@test "$$(wc -l < workflows/issue-resolution.yaml)" -lt 500 || \
+		{ echo "issue-resolution.yaml must contain fewer than 500 formatted lines" >&2; exit 1; }
 	@for file in workflows/*.yaml; do dagu validate "$$file" || exit 1; done
 
 clean:

@@ -41,13 +41,20 @@ dagu start workflows/issue-resolution.yaml --params \
 
 By default, `auto_merge=true`: the workflow may merge after its deterministic gates pass. Agents
 investigate repository instructions, scripts/configuration and GitHub workflows. A visible native
-correction loop permits re-planning, scoped repair and fresh independent review. Missing or
-ambiguous validation/CI blocks publication or merging rather than guessing. Set `auto_merge=false`
-to leave the PR open for manual review instead. Never run it against untrusted repositories: it
-executes project code and agent-proposed edits with the host user's privileges. For a long-running
-Dagu service, install or symlink the workflow file into that service's DAG directory and verify
-discovery there; see the [local deployment guide](docs/issue-resolution.md#local-deployment). The
-interactive CLI and service may use different Dagu configuration.
+reconciliation loop reuses one implementation/validation/publication worker, with balanced planning
+and separate pinned-source independent review. There is no agent-maintained phase-status file.
+Repository validation is required before publication; missing or ambiguous CI evidence blocks merge.
+Set `auto_merge=false` to leave the PR open with a truthful human-handoff outcome instead. Pending
+CI waits without an agent; stale revisions and evidence discrepancies return to bounded
+reconciliation. Never run it against untrusted repositories: it executes project code and
+agent-proposed edits with the host user's privileges. For a long-running Dagu service, install or
+symlink the workflow file into that service's DAG directory and verify discovery there; see the
+[local deployment guide](docs/issue-resolution.md#local-deployment). The interactive CLI and service
+may use different Dagu configuration.
+
+A justified no-change result can finish without manufacturing a commit or PR. See the
+[workflow guide](/docs/issue-resolution.md#local-acceptance-2026-11-02) for observed acceptance
+results, cleanup behavior and remaining unexercised paths.
 
 ## Optional: GitHub Actions deployment
 
@@ -83,6 +90,8 @@ make validate
 Ruff checks for the small lint adapter and declared embedded Python runtimes, plus
 Actions/ShellCheck validation. `make validate` also runs native Dagu validation. The adapter only
 extracts source for linting; it does not execute workflow code or introduce a testing framework.
+`make validate` also enforces the issue resolver's complete formatted YAML budget: fewer than 500
+lines, including its child DAG, prompts and embedded code.
 
 Workflow and wrapper formatting is now included. Native Python and Bash run blocks are checked
 without executing them; behavioral verification remains the executing agent's responsibility.
