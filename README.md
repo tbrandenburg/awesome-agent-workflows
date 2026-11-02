@@ -1,7 +1,7 @@
 # Awesome Agent Workflows
 
-Run a workflow from the repository root
-with locally installed Dagu, OpenCode, and authenticated GitHub CLI:
+Run a workflow from the repository root with locally installed Dagu, OpenCode,
+and authenticated GitHub CLI:
 
 ```sh
 make validate
