@@ -31,6 +31,7 @@ This is a repository collecting valuable [DAGU](https://docs.dagu.sh) based agen
     ...
   ```
 - Always check DAGU latest best-practices before adding features or workflows
+- In case of changes: Do not make it more complicated, but try it simpler and smarter and in a state-of-the-art way - actively pursue elegant solutions instead of highly sophisticated and specific solutions - robustness and reliability through simplicity
 
 ## Testing
 
