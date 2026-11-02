@@ -4,6 +4,10 @@
 
 This is a repository collecting valuable [DAGU](https://docs.dagu.sh) based agentic workflows.
 
+## Guidelines
+
+- Keep the structure of README.md - only add or update information in README.md if it fits into its structure
+
 ## Testing
 
 In order to test workflows feel free to create dummy issues/PRs etc. under tbrandenburg/playground.
