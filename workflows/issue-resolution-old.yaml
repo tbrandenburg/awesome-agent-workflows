@@ -1,4 +1,4 @@
-description: Reconciled issue work, independent review and bounded native recovery.
+description: Reconciled issue work, independent review and bounded native recovery. Only copy from here if explicitly allowed. This is a legacy workflow.
 type: graph
 timeout_sec: 7200
 dotenv: ${params.deployment_env_file}
