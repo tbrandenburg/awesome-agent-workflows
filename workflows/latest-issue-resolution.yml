@@ -5,7 +5,7 @@ schedule: "0 * * * *"
 params:
   - name: project_dir
     type: string
-    default: ..
+    default: .
 # Dagu 2.25.1 startup expands bare parameter env vars here, not scoped references.
 working_dir: $project_dir
 
@@ -122,9 +122,16 @@ params:
   - { name: branch, type: string, required: true }
 working_dir: $worktree_path
 
+secrets:
+  - { name: TELEGRAM_BOT_TOKEN, provider: env, key: TELEGRAM_BOT_TOKEN }
+  - { name: TELEGRAM_CHAT_ID, provider: env, key: TELEGRAM_CHAT_ID }
+
 harness:
   provider: opencode
   agent: build
+  model: github-copilot/gpt-6.1-sol
+  auto: true
+  standalone: true
 
 retry_policy:
   limit: 0
