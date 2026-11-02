@@ -17,3 +17,10 @@ must be writable. To target another checkout:
 ```sh
 make run WORKFLOW=workflows/latest-issue-resolution.yml DAGU_FLAGS='--params project_dir=/path/to/checkout'
 ```
+
+Agent steps use OpenCode with `github-copilot/gpt-6.1-sol` and automatic permission
+approval for unattended execution. Authenticate that provider locally before running.
+Export `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` for the merge notification.
+Dagu loads them as secrets, and each step uses a private OpenCode process to
+receive them rather than an existing background service. Missing credentials
+fail the child workflow before agent execution.
