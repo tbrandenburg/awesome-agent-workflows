@@ -7,6 +7,30 @@ This is a repository collecting valuable [DAGU](https://docs.dagu.sh) based agen
 ## Guidelines
 
 - Keep the structure of `README.md` - only add or update information in `README.md` if it fits into its structure
+- Keep workflows self-contained, simple, portable and human readable - good example:
+  ```yaml
+    ...
+    - id: merge_and_notify
+      depends: [review_pr]
+      action: harness.run
+      with:
+        prompt: |
+          Work only in ${params.worktree_path} on ${params.branch}.
+          Merge remotely; do not switch branches, use --delete-branch, or remove the worktree.
+          Check GitHub issue #${params.issue_id} and its linked PR #${env.PR_ID} and its PR comments. Raise non-duplicate GitHub
+          issues for unresolved high-priority review findings, failing CI, or merge blockers.
+          Merge when required checks pass and no blocking findings remain.
+  
+    - id: worktree_head
+      depends: [merge_and_notify]
+      action: exec
+      with:
+        command: git
+        args: [rev-parse, HEAD]
+      output: WORKTREE_HEAD
+    ...
+  ```
+- Always check DAGU latest best-practices before adding features or workflows
 
 ## Testing
 
