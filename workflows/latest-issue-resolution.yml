@@ -19,13 +19,20 @@ retry_policy:
 
 steps:
   - id: check_open_issues
-    run: |
-      #!/usr/bin/env bash
-      set -euo pipefail
-      issue="$(gh issue list --limit 1 --state open --json number --jq '.[0].number // empty')"
-      # Keep GitHub errors distinct from an empty issue list; stop before agent calls.
-      test -n "$issue" || exit 42
-      printf '%s\n' "$issue"
+    action: exec
+    with:
+      command: gh
+      args:
+        - issue
+        - list
+        - --limit
+        - "1"
+        - --state
+        - open
+        - --json
+        - number
+        - --jq
+        - '.[0].number // error("No open issue")'
     output: ISSUE_ID
 
   - id: prepare_main
@@ -61,12 +68,17 @@ steps:
 
   - id: get_linked_pr
     depends: [commit_push]
-    run: |
-      #!/usr/bin/env bash
-      set -euo pipefail
-      pr="$(gh issue view "$ISSUE_ID" --json closedByPullRequestsReferences --jq '.closedByPullRequestsReferences[0].number // empty')"
-      test -n "$pr" || exit 42
-      printf '%s\n' "$pr"
+    action: exec
+    with:
+      command: gh
+      args:
+        - issue
+        - view
+        - ${env.ISSUE_ID}
+        - --json
+        - closedByPullRequestsReferences
+        - --jq
+        - '.closedByPullRequestsReferences[0].number // error("No linked PR")'
     output: PR_ID
 
   - id: resolve_ci_errors
