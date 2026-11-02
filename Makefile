@@ -21,7 +21,7 @@ format-check:
 lint: format-check
 	$(YAMLLINT) --strict workflows .github/workflows .prettierrc.yaml .yamllint.yaml
 	$(RUFF) check scripts
-	$(PYTHON) scripts/lint_embedded.py --ruff "$(RUFF)" workflows/*.yaml
+	$(PYTHON) scripts/lint_embedded.py --ruff "$(RUFF)" workflows/*.yaml .github/workflows/*.yml
 	@command -v shellcheck
 	actionlint
 

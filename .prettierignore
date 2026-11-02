@@ -1,4 +1,1 @@
-# Preserve executable workflow sources during the surrounding-tooling cleanup.
-# Remove these two exclusions only when workflow formatting is explicitly in scope.
-workflows/issue-resolution.yaml
-.github/workflows/run-issue-resolution.yml
+# Dependencies, caches and local state are excluded by .gitignore.

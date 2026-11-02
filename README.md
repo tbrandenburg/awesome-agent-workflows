@@ -30,9 +30,9 @@ selection, recovery, and safety boundaries.
 
 The intended deployment is your own Dagu instance. It can run this workflow against any GitHub
 repository you can access; GitHub Actions is an optional alternative deployment, not a requirement.
-Install Dagu, OpenCode V2, Python 3.11+ with PyYAML (`python3 -m pip install PyYAML==6.0.3`), Git,
-and GitHub CLI on the machine that runs Dagu. Configure GitHub and Telegram credentials plus at
-least one usable inference provider. From this checkout, start a run directly:
+Install Dagu 2.24.0, OpenCode V2, Python 3.12+, Bash, Git, jq, and GitHub CLI on the machine that
+runs Dagu. Configure GitHub and Telegram credentials plus at least one usable inference provider.
+From this checkout, start a run directly:
 
 ```bash
 dagu start workflows/issue-resolution.yaml --params \
@@ -40,31 +40,31 @@ dagu start workflows/issue-resolution.yaml --params \
 ```
 
 By default, `auto_merge=true`: the workflow may merge after its deterministic gates pass. Agents
-investigate repository instructions, scripts/configuration and GitHub workflows; one verified
-discovery plan drives validation, repair and independent review. Missing or ambiguous validation/CI
-blocks publication or merging rather than guessing. Set `auto_merge=false` to leave the PR open for
-manual review instead. Never run it against untrusted repositories: it executes project code and
-agent-proposed edits with the host user's privileges. For a long-running Dagu service, install or
-symlink the workflow file into that service's DAG directory and verify discovery there; see the
-[local deployment guide](docs/issue-resolution.md#local-deployment). The interactive CLI and service
-may use different Dagu configuration.
+investigate repository instructions, scripts/configuration and GitHub workflows. A visible native
+correction loop permits re-planning, scoped repair and fresh independent review. Missing or
+ambiguous validation/CI blocks publication or merging rather than guessing. Set `auto_merge=false`
+to leave the PR open for manual review instead. Never run it against untrusted repositories: it
+executes project code and agent-proposed edits with the host user's privileges. For a long-running
+Dagu service, install or symlink the workflow file into that service's DAG directory and verify
+discovery there; see the [local deployment guide](docs/issue-resolution.md#local-deployment). The
+interactive CLI and service may use different Dagu configuration.
 
 ## Optional: GitHub Actions deployment
 
-[Manual runner workflow](.github/workflows/run-issue-resolution.yml) installs pinned Dagu/OpenCode
-versions, executes the same self-contained YAML on a fresh Ubuntu runner, and uploads
-evidence/recovery artifacts. Provision repository secrets before dispatching it; merely forking this
-repository supplies no credentials. Use a **private workflow-host repository for private targets**:
-plans, reviews, and source snippets in public logs/artifacts are not private merely because tokens
-are masked. The runner wrapper enforces that visibility boundary.
+[Manual runner workflow](.github/workflows/run-issue-resolution.yml) executes the same
+self-contained YAML on a pre-provisioned persistent self-hosted Linux runner and uploads run
+evidence. Install tools/authentication and provision repository secrets before dispatching it;
+merely forking this repository supplies no credentials. Use a **private workflow-host repository for
+private targets**: plans, reviews, and source snippets in public logs/artifacts are not private
+merely because tokens are masked. The runner wrapper enforces that visibility boundary.
 
 The [validation workflow](.github/workflows/validate.yml) needs no inference credentials and makes
 no model requests. It runs the same formatting, linting, and Dagu validation commands used locally;
 it does not execute behavioral tests.
 
-Acceptance testing starts on the local Dagu host, not an Actions runner. The flow has been exercised
-with real discovered validation, a published PR, independent review, expected CI, confirmed Telegram
-delivery, and an explicitly authorized merge with verified issue closure. See the
+Acceptance testing starts on the local Dagu host, not an Actions runner. Changes to the flow require
+fresh real verification of validation, publication, independent review, CI and Telegram outcomes;
+prior-version evidence does not prove a new workflow. See the
 [standing acceptance-test policy](/AGENTS.md#develop-and-validate).
 
 ## Developing and contributing
@@ -84,10 +84,8 @@ Ruff checks for the small lint adapter and declared embedded Python runtimes, pl
 Actions/ShellCheck validation. `make validate` also runs native Dagu validation. The adapter only
 extracts source for linting; it does not execute workflow code or introduce a testing framework.
 
-For this tooling-only cleanup, the canonical workflow and optional manual runner are excluded from
-automatic formatting so their executable source remains unchanged. YAML, Dagu, Actions, and
-embedded-runtime lint checks still apply. Workflow formatting and embedded-runtime formatting
-require a separate authorized change; the current exclusions are explicit in `.prettierignore`.
+Workflow and wrapper formatting is now included. Native Python and Bash run blocks are checked
+without executing them; behavioral verification remains the executing agent's responsibility.
 
 Behavioral verification is performed by the agent using real local workflow runs, not a checked-in
 test suite. Use the approved playground target and safe merge settings described in `AGENTS.md`, and
