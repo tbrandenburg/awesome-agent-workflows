@@ -19,18 +19,17 @@ agent edits with the host user's permissions.
 - Small lint-only extraction glue is allowed for embedded code; YAML validity alone does not
   validate Python literal blocks. Do not expand this glue into a parser or execution framework.
 - Prefer native Dagu actions and concise runtime glue. Changes to tooling must not rewrite workflow
-  sources unless explicitly in scope. The two current executable workflow files are excluded from
-  automatic formatting for this surrounding-tooling cleanup; remove those exclusions only during an
-  authorized workflow-formatting change.
+  sources unless explicitly in scope. Keep prompts directly in agent steps and use native Dagu
+  control flow rather than embedding another orchestration engine.
 - Collection-level cleanup must preserve workflow runtime safety: repository-backed validation,
   independent review, current head/base checks, expected CI, credential protection, bounded repair,
   recovery, and verified merge/issue closure. Target repositories still need their real tests.
 
 ## Run issue resolution
 
-1. On the machine running your Dagu instance, install Dagu, OpenCode, Python 3.11+ with PyYAML
-   6.0.3, GNU env, Git, and GitHub CLI. Ensure the target repository's dependencies and validation
-   tools are available.
+1. On the machine running your Dagu instance, install Dagu 2.24.0, OpenCode V2, Python 3.12+, Bash,
+   Git, jq, and GitHub CLI. Ensure the target repository's dependencies and validation tools are
+   available.
 2. Configure `GH_TOKEN`, `TELEGRAM_BOT_TOKEN`, and `TELEGRAM_CHAT_ID`, plus at least one usable
    inference provider. Keep credentials outside the repository; see
    [the workflow guide](docs/issue-resolution.md#credentials).
@@ -75,9 +74,9 @@ is optional.
 - Tooling needs Python 3.12+, Node.js 24+, Dagu, actionlint, and ShellCheck on the host.
   `make install` installs the pinned Python and Prettier dependencies into this checkout; it does
   not install or reconfigure the host Dagu service.
-- Use `make format` to format surrounding files, `make format-check` for read-only formatting
+- Use `make format` to format workflows and guides, `make format-check` for read-only formatting
   checks, and `make validate` for formatting, linting, and Dagu schema validation. There is no
   collection-level behavioral test target.
-- `scripts/lint_embedded.py` passes the declared `materialize_runtime` Python blocks to Ruff without
-  executing or rewriting them. Other embedded languages need appropriate direct tool checks when
-  introduced, not a generic test harness.
+- `scripts/lint_embedded.py` checks declared native Python/Bash run blocks without executing them.
+  Other embedded languages need appropriate direct tool checks when introduced, not a generic
+  runner.

@@ -1,36 +1,35 @@
 name: Manual Dagu Issue Resolution
-
 on:
   workflow_dispatch:
     inputs:
       repository:
-        description: Target GitHub owner/name (trusted repositories only)
+        description: Trusted target owner/name
         required: true
         type: string
       issue_number:
-        description: Issue number, or zero to select an open issue
+        description: Issue number; zero selects an open issue
         type: number
         default: 0
       base_branch:
-        description: Optional base branch; empty detects the repository default
+        description: Empty selects the repository default branch
         type: string
-        default: ''
+        default: ""
       auto_merge:
-        description: Merge after passing validation, review and required CI
+        description: Merge only after validation, independent review, CI and GitHub rules pass
         type: boolean
         default: true
-
-permissions:
-  contents: read
-
+      workspace_root:
+        description: Absolute persistent workspace on the self-hosted runner
+        type: string
+        default: /var/lib/dagu/workspaces
+permissions: { contents: read }
 concurrency:
   group: issue-resolver-${{ inputs.repository }}
   cancel-in-progress: false
-
 jobs:
   resolve:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 75
+    runs-on: [self-hosted, linux]
+    timeout-minutes: 130
     env:
       GH_TOKEN: ${{ secrets.RESOLVER_GH_TOKEN }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -38,107 +37,67 @@ jobs:
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-      PYTHONDONTWRITEBYTECODE: '1'
-      RESOLVER_REPOSITORY: ${{ inputs.repository }}
-      RESOLVER_ISSUE: ${{ inputs.issue_number }}
-      RESOLVER_BASE: ${{ inputs.base_branch }}
-      RESOLVER_AUTO_MERGE: ${{ inputs.auto_merge }}
+      REPOSITORY: ${{ inputs.repository }}
+      ISSUE: ${{ inputs.issue_number }}
+      BASE: ${{ inputs.base_branch }}
+      AUTO_MERGE: ${{ inputs.auto_merge }}
+      WORKSPACE_ROOT: ${{ inputs.workspace_root }}
       WORKFLOW_HOST_PRIVATE: ${{ github.event.repository.private }}
     steps:
-      - name: Checkout workflow definition
-        uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-      - name: Install pinned workflow tools
-        shell: bash
+      - uses: actions/checkout@v4
+        with: { persist-credentials: false }
+      - name: Guard visibility and run the canonical local workflow
+        env:
+          DAGU_HOME: ${{ runner.temp }}/issue-resolver-dagu
+        shell: python
         run: |
-          set -euo pipefail
-          directory="$RUNNER_TEMP/resolver-tools"
-          mkdir -p "$directory"
-          curl --fail --silent --show-error --location --max-time 120 \
-            https://github.com/dagucloud/dagu/releases/download/v2.24.0/dagu_2.24.0_linux_amd64.tar.gz \
-            --output "$directory/dagu.tar.gz"
-          curl --fail --silent --show-error --location --max-time 60 \
-            https://github.com/dagucloud/dagu/releases/download/v2.24.0/checksums.txt \
-            --output "$directory/checksums.txt"
-          python3 - "$directory" <<'PY'
-          import hashlib, pathlib, sys
-          root = pathlib.Path(sys.argv[1])
-          filename = 'dagu_2.24.0_linux_amd64.tar.gz'
-          entries = [line.split() for line in (root / 'checksums.txt').read_text().splitlines()]
-          expected = next(parts[0] for parts in entries if len(parts) == 2 and parts[1].lstrip('*') == filename)
-          actual = hashlib.sha256((root / 'dagu.tar.gz').read_bytes()).hexdigest()
-          if actual != expected:
-              raise SystemExit('Dagu release checksum mismatch')
-          PY
-          tar -xzf "$directory/dagu.tar.gz" -C "$directory" dagu
-          echo "$directory" >> "$GITHUB_PATH"
-          echo "DAGU_HOME=$RUNNER_TEMP/dagu" >> "$GITHUB_ENV"
-          npm install --global @opencode/cli@2.0.28
-          python3 -m pip install PyYAML==6.0.3
-          "$directory/dagu" version
-          opencode --version
-          gh --version
-      - name: Run self-contained DAG
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p "$DAGU_HOME" "$RUNNER_TEMP/resolver"
-          touch "$RUNNER_TEMP/resolver-empty.env"
-          python3 - <<'PY'
-          import json, os, pathlib, re, subprocess
+          import json
+          import os
+          import pathlib
+          import re
+          import subprocess
+
+
           def require_private_host(target_private: object, host_private: str) -> None:
               if not isinstance(target_private, bool):
-                  raise ValueError('Cannot verify target visibility')
-              if target_private and host_private != 'true':
-                  raise ValueError('Private targets require a private workflow-host repository; public run logs/artifacts can expose task data')
-          required = ['GH_TOKEN', 'TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID']
-          missing = [key for key in required if not os.environ.get(key)]
-          if missing:
-              raise SystemExit('Missing named runner secrets: ' + ', '.join(missing))
-          repository = os.environ['RESOLVER_REPOSITORY']
-          if not re.fullmatch(r'[A-Za-z0-9_-]+/[A-Za-z0-9_.-]+', repository):
-              raise SystemExit('Target repository must be owner/name')
-          metadata = subprocess.run(['gh', 'api', 'repos/' + repository], capture_output=True, text=True, timeout=30)
-          if metadata.returncode:
-              raise SystemExit('Cannot access target repository; details withheld')
-          private = json.loads(metadata.stdout).get('private')
-          require_private_host(private, os.environ.get('WORKFLOW_HOST_PRIVATE', 'false'))
-          # Dagu only forwards explicitly configured optional environment names.
-          # This config contains names, never credential values.
-          (pathlib.Path(os.environ['DAGU_HOME']) / 'config.yaml').write_text(
-              'env_passthrough:\n  - OPENAI_API_KEY\n  - ANTHROPIC_API_KEY\n  - OPENROUTER_API_KEY\n'
+                  raise ValueError("Cannot verify target visibility")
+              if target_private and host_private != "true":
+                  raise ValueError("Private targets require a private workflow-host repository")
+
+
+          repository = os.environ["REPOSITORY"]
+          if not re.fullmatch(r"[A-Za-z0-9_-]+/[A-Za-z0-9_.-]+", repository):
+              raise ValueError("Target must be owner/name")
+          result = subprocess.run(
+              ["gh", "repo", "view", repository, "--json", "isPrivate"],
+              capture_output=True,
+              text=True,
+              check=True,
+              timeout=30,
           )
-          params = {
-              'repository': os.environ['RESOLVER_REPOSITORY'],
-              'issue_number': os.environ['RESOLVER_ISSUE'],
-              'base_branch': os.environ['RESOLVER_BASE'],
-              'auto_merge': os.environ['RESOLVER_AUTO_MERGE'],
-              'workspace_root': str(pathlib.Path(os.environ['RUNNER_TEMP']) / 'resolver'),
-              'workspace_mode': 'ephemeral',
-              'deployment_env_file': str(pathlib.Path(os.environ['RUNNER_TEMP']) / 'resolver-empty.env'),
-              'git_author_name': 'Dagu Issue Resolver',
-              'git_author_email': 'dagu-resolver@users.noreply.github.com',
-          }
-          # JSON avoids quoting user input into executable shell syntax.
-          result = subprocess.run(['dagu', 'start', '--params', json.dumps(params), 'workflows/issue-resolution.yaml'], timeout=3900)
-          raise SystemExit(result.returncode)
-          PY
-      - name: Upload run evidence and unfinished-work recovery
+          require_private_host(json.loads(result.stdout)["isPrivate"], os.environ["WORKFLOW_HOST_PRIVATE"])
+          empty = pathlib.Path(os.environ["RUNNER_TEMP"]) / "issue-resolver-empty.env"
+          empty.touch()
+          params = dict(
+              repository=repository,
+              issue_number=os.environ["ISSUE"],
+              base_branch=os.environ["BASE"],
+              auto_merge=os.environ["AUTO_MERGE"],
+              workspace_root=os.environ["WORKSPACE_ROOT"],
+              deployment_env_file=str(empty),
+          )
+          subprocess.run(
+              ["dagu", "start", "workflows/issue-resolution.yaml", "--params", json.dumps(params)],
+              check=True,
+              timeout=7500,
+          )
+      - name: Upload run evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: issue-resolver-${{ github.run_id }}
           path: |
-            ${{ runner.temp }}/dagu/data/artifacts/
-            ${{ runner.temp }}/dagu/logs/
+            ${{ runner.temp }}/issue-resolver-dagu/data/artifacts/
+            ${{ runner.temp }}/issue-resolver-dagu/logs/
           if-no-files-found: warn
           retention-days: 7

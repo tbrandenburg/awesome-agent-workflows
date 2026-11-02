@@ -1,238 +1,143 @@
 # Issue resolution
 
-[Workflow](../workflows/issue-resolution.yaml) ·
-[GitHub runner](../.github/workflows/run-issue-resolution.yml)
+The [canonical YAML](/workflows/issue-resolution.yaml) is self-contained. Local Dagu is primary; the
+[Actions wrapper](/.github/workflows/run-issue-resolution.yml) uses a pre-provisioned, persistent
+self-hosted Linux runner.
 
-## Process
-
-```text
-basic preflight + repository ownership lease
-  -> inspect OpenCode auth/catalog -> readiness probes -> pin model tiers
-  -> clone/fetch target repository -> select one exact issue/PR
-  -> create/reuse persistent issue worktree
-  -> investigate -> validate and publish implementation plan
-  -> implement -> actual project checks -> rich commit/PR metadata
-  -> commit/push -> create/update linked PR
-  -> separate review worktree -> independent review and validation
-  -> wait for required GitHub CI -> optional bounded repair attempt
-  -> recheck PR head/base and CI -> optional merge -> verify issue closure
-  -> clean merged worktree -> Telegram outcome -> release lease
-```
-
-The workflow has no schedule. Default `auto_merge=true` permits merging only after validation,
-independent review, expected CI, and current head/base checks pass. Explicitly set it to `false` to
-leave the validated, reviewed PR open for manual review.
-
-## Prerequisites
-
-- Dagu 2.24.0 and OpenCode 2.0.28 are the versions exercised by the runner example.
-- Python 3.11+ with PyYAML 6.0.3, Bash, Git, and GitHub CLI are available to the execution user.
-- Project dependencies and project validation commands are available. The workflow does not guess
-  dependency-install commands.
-- Target-repository GitHub access and Telegram bot/chat credentials are configured.
-- At least one candidate inference route must pass its actual readiness request.
-
-## Parameters
-
-| Parameter             | Default / contract                                                                                                                     |
-| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `repository`          | Required GitHub `owner/name`; public and accessible private repositories are supported.                                                |
-| `issue_number`        | `0`: select an open issue, preferring a resolver PR already in progress. Set a number to pin it explicitly.                            |
-| `base_branch`         | Empty: detect the target repository's default branch.                                                                                  |
-| `auto_merge`          | `true`; merging requires validation/review/CI and remote-state checks. Set to `false` for manual review.                               |
-| `workspace_root`      | `/var/lib/dagu/workspaces`; override with an absolute writable directory on your host.                                                 |
-| `workspace_mode`      | `persistent` or `ephemeral`; runner example uses ephemeral.                                                                            |
-| `deployment_env_file` | `/var/lib/dagu/issue-resolver.env`; override with your protected dotenv file, or an empty file when injecting environment credentials. |
-| `git_author_name`     | `Dagu Issue Resolver`.                                                                                                                 |
-| `git_author_email`    | `dagu-resolver@users.noreply.github.com`; set your desired commit identity.                                                            |
-
-An issue is selected once. Later agents cannot switch to a newly opened "latest" issue or publish
-duplicate PRs by rediscovering work independently.
-
-## Credentials
-
-Required variables:
+## Flow
 
 ```text
-GH_TOKEN
-TELEGRAM_BOT_TOKEN
-TELEGRAM_CHAT_ID
+pin repository/issue/branch/PR + acquire repository lease
+  -> native checkout/fetch + isolated issue worktree
+  -> resolve economy/balanced once from real auth, catalog and readiness
+  -> native repeated child cycle:
+       investigate/plan -> implement/validate -> commit/push/PR
+       OR correct actual failures -> commit/push
+       -> fresh separate-worktree independent review
+       -> observe GitHub: wait / fix / replan / review / ready / blocked
+  -> current-head/base/CI recheck -> optional merge -> verify issue closure
+  -> cleanup only after merge -> truthful Telegram outcome -> release lease
 ```
 
-Optional inference credentials:
+`correction_loop` uses installed Dagu 2.24.0's native `repeat_policy: until` on `dag.run`. Its
+condition is checked after each child, with 30 seconds between cycles, at most 120 observations, and
+a two-hour overall timeout. Waiting is not a repair attempt; queued/running CI or unknown
+mergeability does not invoke a fixer. Exhaustion or unresolved access/approval obstacles fail
+honestly and preserve work. A child failure marks the run blocked and stops repetition; observers
+have 90-second step deadlines, rather than retrying broken observation for an hour.
 
-```text
-OPENAI_API_KEY
-ANTHROPIC_API_KEY
-OPENROUTER_API_KEY
-```
-
-OpenCode's existing stored authentication can also make a provider eligible. The workflow uses
-`opencode auth list --standalone --format json`, not `auth export`. It does not copy OAuth sessions
-to another machine. A GitHub repository token is not a Copilot inference credential.
-
-If credentials come from the parent process environment rather than the DAG dotenv scope, configure
-Dagu to forward only the optional inference names:
-
-```yaml
-env_passthrough:
-  - OPENAI_API_KEY
-  - ANTHROPIC_API_KEY
-  - OPENROUTER_API_KEY
-```
-
-The runner example writes this nonsecret deployment configuration. Keep dotenv files mode 0600 and
-outside the repository. Native GitHub/Telegram secret providers and the embedded launcher protect
-known credential values from logs; never instruct a model to inspect credentials or dump its
-environment.
-
-## Model tiers
-
-Candidates are defined once in the workflow's `consts` and tried in order:
-
-| Tier     | Ordered routes                                                                                                                               |
-| -------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| economy  | OpenAI GPT-6 Luna → Copilot GPT-6 Luna → Anthropic Haiku 5.5 → Copilot Haiku 5.5 → OpenRouter GPT-6 Luna → Big Pickle                        |
-| balanced | OpenAI GPT-6.1 Sol → Copilot GPT-6.1 Sol → Anthropic Sonnet 5.5 → Copilot Sonnet 5.5 → OpenRouter GPT-6.1 Sol → Big Pickle                   |
-| premium  | OpenAI GPT-6 Astra → Copilot GPT-6 Astra → Anthropic Opus 5.5 → Copilot Opus 5.5 → OpenRouter GPT-6 Astra → OpenRouter Opus 5.5 → Big Pickle |
-
-Issue resolution selects only economy and balanced. Planning uses balanced; implementation,
-publication metadata, and review use economy. Premium is defined but not probed or used. Big Pickle
-is marked degraded, not capability-equivalent.
-
-Auth metadata and a catalog entry are necessary but not sufficient: a bounded, no-tools readiness
-request must succeed. Auth/model-unavailable errors allow the next candidate; network errors,
-timeouts, metadata failures, and unexpected responses are surfaced. Once selected, models stay
-pinned through repair.
-
-Selected IDs and safe eligibility evidence appear in `model-selection.json` and the Telegram
-outcome. Readiness probes are billable when the provider bills them, and still execute before the
-no-work path. Reasoning effort is not silently changed; tier names are a policy, not a guarantee of
-benchmark performance.
+Agents discover repository conventions, commands and applicable CI. There is no command catalog,
+Actions/path/matrix interpreter, frozen plan, narrative JSON schema, custom launcher or materialized
+prompt collection. Plans/reports are readable Markdown; small control outputs select the next
+visible Dagu phase. Invalid assumptions allow balanced re-investigation; report-formatting problems
+must not restart implementation. `task.status` contains one routing token; explanations belong in
+Markdown. The observer reads its first line and blocks unknown tokens. Missing/unparseable review
+control returns to independent review, not implementation.
 
 ## Local deployment
 
-Run the file directly with explicit parameters, or install a file symlink into the running Dagu
-service's actual DAG directory. Do not assume the interactive CLI uses the same `DAGU_HOME`,
-`DAGU_DAGS_DIR`, or `--dags` setting as that service.
+Install Dagu 2.24.0, OpenCode V2, Python 3.12+, Bash, Git, jq and GitHub CLI. Configure
+GitHub/Telegram credentials and at least one usable OpenCode provider for the execution account.
+Keep credentials outside the repository, preferably in a mode-0600 deployment dotenv file. Never
+export stored OAuth credentials into the workflow.
 
-External-target file links require this service configuration:
+Native Dagu secrets redact `GH_TOKEN`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` and the three
+inference API keys. Unused `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` and `OPENROUTER_API_KEY` names must
+exist with empty values; stored OpenCode authentication remains eligible. The Actions wrapper
+defines these names through job secrets.
 
-```yaml
-dag_discovery:
-  symlinks: true
+```bash
+dagu start workflows/issue-resolution.yaml --params \
+  'repository=owner/repository issue_number=123 auto_merge=false workspace_root="/absolute/path/to/workspaces" deployment_env_file="/absolute/path/to/deployment.env"'
 ```
 
-Verify discovery through that service/context. Dagu does not traverse symlinked directories. Direct
-file execution needs neither a symlink nor a scheduler.
+`repository` is required; `issue_number=0` selects an open issue once. `base_branch` defaults to the
+repository default. `auto_merge=true` is the default, but checks, independent review, approvals and
+rules are never bypassed. Use `false` for manual review and unapproved acceptance-test merging.
 
-## GitHub Actions
+Deployment defaults are `/var/lib/dagu/workspaces` and `/var/lib/dagu/issue-resolver.env`. Override
+these for another host. Optional `git_author_name`/`git_author_email` configure the workflow
+checkout's commit identity. No repository-specific validation/check inputs exist.
 
-Provision these secrets in the repository hosting the manual runner:
+### Credentials
 
-- `RESOLVER_GH_TOKEN`: GitHub App token or suitable scoped PAT for the target's content/issue/PR
-  operations and downstream CI triggering.
-- `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`.
-- Any available inference API keys from the optional list above.
+Provide `GH_TOKEN`, `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` to the execution account through the
+deployment dotenv file or environment. Native CLI agents receive declared inference-key secrets;
+stored OpenCode authentication is read by OpenCode itself, not exported by the workflow. Git uses a
+process-local `gh auth git-credential` helper with terminal prompting disabled; no global Git
+configuration or credential file is rewritten.
 
-Then dispatch `run-issue-resolution.yml`. It installs pinned tools, checks the Dagu release
-checksum, runs the same YAML on Ubuntu 24.04, and uploads run evidence/recovery artifacts even after
-a task failure. It has read-only wrapper permissions, does not persist checkout credentials, and
-serializes target-repository runs without canceling an earlier one.
+## Models, evidence and recovery
 
-**Private targets must use a private repository to host this Actions wrapper.** Public Actions logs
-and uploaded artifacts can contain issue text, source snippets, plans, and review data even when
-credentials are redacted. The supplied wrapper checks visibility and rejects private targets from a
-public workflow host before inference. Copy it into a private host repository, or run the YAML
-locally, for private projects. Do not treat secret masking as protection for private task data.
+Economy/balanced/premium definitions remain centralized in `consts`. Selection preserves their order
+using real auth metadata, catalog and bounded readiness calls. Auth/model unavailability allows the
+next candidate; network/timeouts/unexpected failures do not silently downgrade. Economy and balanced
+stay pinned; premium is neither probed nor used. Planning uses balanced; other agents use economy in
+separate native OpenCode contexts.
 
-Fresh hosted runners do not inherit your local OAuth state. The built-in `GITHUB_TOKEN` is not
-assumed to support arbitrary cross-repository targets or trigger their CI. Keep secrets scoped to
-the repositories you intentionally allow.
+Run artifacts include model-selection evidence, `context.json`, `task.status`, Markdown
+plans/reports, `review.json`, readiness/GitHub snapshots and `telegram.json`. Each child has its own
+native agent transcript artifacts. Plans are published to the issue; independent review is published
+to the pinned PR and reruns actual validation in a detached worktree.
 
-## Validation and recovery
+Agents record expected workflow database IDs/check names using relevant configuration and GitHub
+APIs, letting GitHub expand matrices/reusable jobs. Empty/missing CI is not passing; genuinely
+absent CI requires explicit evidence. Changed head/base requires fresh review. Real CI
+failures/conflicts/findings invoke TODO-tool correction, not a ledger. OpenCode versions without the
+experimental TODO tool record the single task in the existing correction report instead; that
+optional tool's absence is not a repair blocker.
 
-The caller supplies a repository and optionally an issue number, not project checks. During
-mandatory investigation the planner inspects repository instructions (including nested rules),
-Makefiles, package scripts, project configuration and GitHub workflows. `discovery.json` records
-sources, repository-backed argv and effective branch policy. The write-once `plan.json` includes
-that discovery and classifies type-check, lint/format, tests and build; composite validation targets
-are included. Every catalog entry must be included. An absent category needs an evidence-based N/A
-reason; tests cannot be absent. Unsupported checks or conflicting instructions are explicit
-blockers. Commands execute as validated argv, never unrestricted generated shell strings.
-Documented/workflow `python3 -m unittest discover` entrypoints are supported when their fixed
-discovery flags point to existing repository test files. Unknown flags, shell expressions, traversal
-and missing test files are rejected rather than inferred. Nested commands use a fixed
-`env -C <relative-directory>` cwd wrapper (GNU env required). Dependencies must be available in both
-implementation and independent review worktrees.
+Persistent worktrees retain committed and uncommitted source on failure. There is no automatic
+reset/stash/force-push or source-export framework. Stale leases fail closed: inspect `owner.json`
+and confirm its run is inactive before recovery. Resume the same issue/linked PR without discarding
+work. Only verified merge/issue closure permits cleanup. The optional wrapper therefore requires
+persistent self-hosted storage, not ephemeral hosted runners. Private targets require a private
+workflow-host repository; masking is not privacy.
 
-CI expectations combine accessible branch protection/effective rulesets and applicable GitHub
-workflows. Static matrices (including include/exclude) and local reusable jobs are expanded;
-branch/path filters are evaluated against the planned paths and then the actual PR diff.
-Policy-required checks stay required even if a workflow is filtered out. Empty expectations or
-missing/pending registration cannot pass. Expected jobs must succeed; app-bound identities are
-verified through check runs at the reviewed SHA. `ci-evidence.json` records expectations, rollup and
-check-run evidence. Changed base commits, CI configuration, policy or plan invalidate evidence and
-require a new run.
+A newly started run resumes a single linked open PR at independent review, not by repeating
+implementation. The reviewer recovers prior context from issue/PR discussion and checks the current
+head/base. Preserve failed run artifacts for diagnosis; do not remove a lease while its owner is
+active.
 
-Discovery fails closed for unavailable or ambiguous policy APIs. A narrowly verified exception
-records proven feature absence: an unprotected private personal repository with verified
-administrator access, where both effective-rules and protection APIs explicitly report that the
-feature requires GitHub Pro. This is not a permission-error fallback; workflow-derived expected CI
-must still be nonempty, register and succeed. Discovery also blocks dynamic matrices/names, remote
-or cyclic reusable workflows, conditional/allowed-failure jobs, advanced glob patterns, PR activity
-filters that cannot guarantee publication/repair CI, organization-required workflows, and diffs over
-GitHub's 300-file path-filter limit. These are limitations, not requests for repository-specific
-replacement inputs or permission to skip CI. `telegram-delivery.json` records the API-confirmed
-outcome without chat/token values.
+## Original prompt mapping
 
-Repairs use the agent TODO tool, not task-ledger files. A maximum of two full attempts prevents an
-unbounded inference loop. CI waiting is bounded. Follow-up issues for unresolved high/critical
-blockers are deduplicated and never substitute for passing merge gates.
+- `ghar-issue-investigate.md`: evidence/history, 5 Whys, scoped actionable planning, issue
+  publication.
+- `prp-issue-fix.md`: plan accuracy, conventions, implementation, real validation and deviations.
+- `commit-push.md`: safe cohesive staging, useful commit context, normal push and linked PR.
+- `resolve-ci-errors.md`: diagnose, plan, fix, validate/push; TODO replaces the ledger and Dagu owns
+  repetition.
+- `prp-review.md`: independent full-context review, actual checks, severity and actionable feedback.
 
-Persistent layout below `workspace_root`:
+The actual Sofathek `.made/workflows.yml` and issue-opened investigation trigger supply the
+sequence. Latest-issue selection and shared-checkout cleanup were replaced with pinned
+identity/worktrees. Unsafe rewriting, duplicate phases and oversized templates were removed;
+substantive responsibilities remain directly in YAML. Sofathek files are not runtime dependencies.
 
-```text
-repos/<owner>/<repo>/
-worktrees/<owner>/<repo>/issue-<number>/
-reviews/<owner>/<repo>/issue-<number>-<child-run>/
-leases/<owner>/<repo>/owner.json
-```
+## Local discovery and verification
 
-Failed issue worktrees are preserved. Normal exit releases the owned lease; a crash-stale lease
-fails closed. Inspect its recorded run and confirm that run is inactive before manual recovery.
-Never remove another active run's lease.
+The existing local symlink is `/var/lib/dagu/dags/issue-resolution.yaml`. External links require
+`dag_discovery.symlinks: true` in the actual service config. Verify discovery with
+`DAGU_HOME=/var/lib/dagu dagu ls issue-resolution`; direct CLI execution needs no scheduler. See
+[AGENTS.md](/AGENTS.md#develop-and-validate) for the approved playground test policy.
 
-On an ephemeral runner, published work resumes from its remote branch/PR. Uncommitted eligible
-source is captured as a patch/archive for manual recovery; the workflow does not push unvalidated
-commits just to preserve them. Recovery rejects symlink traversal and withholds artifacts when known
-credential content or common token/key patterns are detected. Detection and artifact upload are not
-exhaustive guarantees after severe process or machine loss.
+Lint/schema checks do not execute workflows. Each behavior change needs fresh real local acceptance
+evidence; old-version runs and unexecuted recovery paths must not be claimed.
 
-## Safety and evidence scope
+### Latest local acceptance (2026-11-02)
 
-This executes trusted project code and agent edits with host privileges and automatic tool
-permission approval. A worktree is not a security sandbox. Use isolated workers for untrusted
-repositories. Fork PRs, ambiguous linked PRs, conflicting worktree ownership, changed PR
-heads/bases, failing CI, and blocking reviews fail closed. Custom workspace OpenCode configuration
-is not overwritten.
+Investigation, implementation, validation and PR publication executed in an earlier run of this
+rewrite. The final canonical run resumed that PR after an intentionally injected regression and
+succeeded: one correction using actual failed CI logs, two independent reviews, five wait-only
+cycles with zero agent invocations, current-head CI and final gates passing, and confirmed Telegram
+delivery. The issue worktree remained clean, the lease was released, and the PR/issue stayed open
+with `auto_merge=false`. The target's 26 subprocess tests passed after repair.
 
-Collection checks format/lint surrounding files, lint the workflow YAML and declared embedded
-Python, and perform native Dagu validation. They do not execute workflows or replace
-agent-orchestrated behavioral verification. Local acceptance on the approved private test repository
-exercised this canonical workflow with discovered unittest validation, a published investigation
-plan, implementation and publication, a separate independent review worktree, expected app-bound
-GitHub CI at the current head/base, and API-confirmed Telegram delivery. No project validation or
-check-name inputs were supplied.
+Direct probes of the canonical final gate against real GitHub state accepted valid evidence and
+rejected seven stale/missing/failed-evidence cases. Native child-failure stopping, active-lease
+contention, closed-issue rejection, credential-helper portability and the wrapper's visibility guard
+were also checked. Private transcripts and disposable probes remain outside the checkout.
 
-Initial acceptance kept automatic merging disabled. After explicit operator authorization, the
-canonical runtime re-ran validation and the current head/base/CI gates, merged the same
-independently reviewed PR, verified issue closure, removed the issue worktree, and confirmed the
-merged Telegram outcome. The default is now `auto_merge=true`; unapproved acceptance tests must
-still explicitly set it to `false`.
-
-The independent review explicitly reported a transient GitHub API failure rather than claiming CI
-passed; the subsequent deterministic CI gate independently obtained and verified successful
-check-run evidence. Dynamic/unsupported discovery cases remain fail-closed, and a future behavior
-change needs a fresh local acceptance run. GitHub Actions is an optional deployment target, not the
-primary acceptance host.
+Automatic merging/issue closure, a genuinely CI-free target, an empty open-issue queue, API-key-only
+inference authentication and an actual Actions dispatch were not exercised. Installed OpenCode
+`v2.0.28` lacks TODO support; its Markdown-report fallback was exercised instead.
