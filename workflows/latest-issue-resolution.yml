@@ -1,0 +1,112 @@
+# Hand-maintained Dagu counterpart of .made/workflows.yml (wf_mmozh3te_a0828).
+# Prompts intentionally summarize the command files instead of copying their procedures.
+description: Continuous Issue Resolution
+type: graph
+schedule: "0 * * * *"
+
+params:
+  - name: project_dir
+    type: string
+    default: ..
+working_dir: ${params.project_dir}
+
+harness:
+  provider: opencode
+  agent: build
+
+retry_policy:
+  limit: 0
+
+steps:
+  - id: check_open_issues
+    run: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      issue="$(gh issue list --limit 1 --state open --json number --jq '.[0].number // empty')"
+      # Keep GitHub errors distinct from an empty issue list; stop before agent calls.
+      test -n "$issue" || exit 42
+      printf '%s\n' "$issue"
+    output: ISSUE_ID
+
+  - id: prepare_main
+    depends: [check_open_issues]
+    # Preserves the source workflow's destructive cleanup. Use a dedicated checkout.
+    run: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      git restore --staged . 2>/dev/null && git restore . && git switch main &&
+        git pull --rebase --autostash
+
+  - id: fix_issue
+    depends: [prepare_main]
+    action: harness.run
+    with:
+      prompt: |
+        Address GitHub issue #${env.ISSUE_ID}. Continue its linked PR if one exists;
+        otherwise work on a feature branch. Use any investigation comment as guidance,
+        check it against the current code, implement a focused fix, and run relevant tests.
+        Do not create report files, task ledgers, or other workflow-tracking artifacts.
+        Keep findings and verification evidence in your response or GitHub comments.
+
+  - id: commit_push
+    depends: [fix_issue]
+    action: harness.run
+    with:
+      prompt: |
+        Review the local diff, commit the related changes on a non-main branch, and push.
+        Create or update a PR linked to issue #${env.ISSUE_ID}, with a concise summary and test results.
+        Do not include unrelated changes.
+        Do not create report files, task ledgers, or other workflow-tracking artifacts.
+        Keep findings and verification evidence in your response or GitHub comments.
+
+  - id: get_linked_pr
+    depends: [commit_push]
+    run: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      pr="$(gh issue view "$ISSUE_ID" --json closedByPullRequestsReferences --jq '.closedByPullRequestsReferences[0].number // empty')"
+      test -n "$pr" || exit 42
+      printf '%s\n' "$pr"
+    output: PR_ID
+
+  - id: resolve_ci_errors
+    depends: [get_linked_pr]
+    action: harness.run
+    with:
+      prompt: |
+        Check GitHub issue #${env.ISSUE_ID} and its linked PR #${env.PR_ID}. If CI failures or merge
+        conflicts block the PR, investigate the cause, fix it, run relevant checks,
+        and commit and push the changes. Leave it unchanged when there are no blockers.
+        Do not create report files, task ledgers, or other workflow-tracking artifacts.
+        Keep findings and verification evidence in your response or GitHub comments.
+
+  - id: review_pr
+    depends: [resolve_ci_errors]
+    action: harness.run
+    with:
+      prompt: |
+        Review PR #${env.PR_ID} linked to GitHub issue #${env.ISSUE_ID}. Check correctness,
+        security, project conventions, and relevant tests. Post actionable findings
+        as a PR comment, noting severity and useful code references.
+        Do not create report files, task ledgers, or other workflow-tracking artifacts.
+        Keep findings and verification evidence in your response or GitHub comments.
+
+  - id: merge_and_notify
+    depends: [review_pr]
+    action: harness.run
+    with:
+      prompt: |
+        Check GitHub issue #${env.ISSUE_ID} and its linked PR #${env.PR_ID}. Raise non-duplicate GitHub
+        issues for unresolved high-priority review findings, failing CI, or merge blockers.
+        Merge when required checks pass and no blocking findings remain. If a PR was
+        processed, send a Telegram message with the outcome.
+        Do not create report files, task ledgers, or other workflow-tracking artifacts.
+        Keep findings and verification evidence in your response or GitHub comments.
+
+  - id: restore_main
+    depends: [merge_and_notify]
+    run: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      git restore --staged . 2>/dev/null && git restore . && git switch main &&
+        git pull --rebase --autostash
