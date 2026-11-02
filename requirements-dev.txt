@@ -1,3 +1,0 @@
-PyYAML==6.0.3
-ruff==0.14.6
-yamllint==1.38.0
