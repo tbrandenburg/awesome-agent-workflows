@@ -45,13 +45,21 @@ steps:
       args: [rev-parse, --verify, FETCH_HEAD]
     output: MAIN_COMMIT
 
-  - id: worktree
+  - id: repository_root
     depends: [main_commit]
+    action: exec
+    with:
+      command: git
+      args: [rev-parse, --show-toplevel]
+    output: REPOSITORY_ROOT
+
+  - id: worktree
+    depends: [repository_root]
     # Reuse a matching worktree without resetting it; fail on conflicts.
     action: git.worktree.add
     with:
       branch: issue/${env.ISSUE_ID}
-      path: .worktrees/issue-${env.ISSUE_ID}
+      path: ${env.REPOSITORY_ROOT}-issue-${env.ISSUE_ID}
       create_branch: true
       base: ${env.MAIN_COMMIT}
 

@@ -1,8 +1,12 @@
 DAGU ?= dagu
 DAGU_FLAGS ?=
+WORKFLOW ?= workflows/latest-issue-resolution.yml
 WORKFLOWS := $(sort $(wildcard workflows/*.yaml workflows/*.yml))
 
-.PHONY: validate
+.PHONY: run validate
+
+run:
+	$(DAGU) start $(DAGU_FLAGS) "$(WORKFLOW)"
 
 validate:
 	@status=0; \

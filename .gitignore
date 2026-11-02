@@ -35,7 +35,6 @@ yarn-error.log*
 pnpm-debug.log*
 
 # Build output and coverage
-.worktrees/
 build/
 dist/
 coverage/
