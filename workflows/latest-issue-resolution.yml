@@ -1,6 +1,4 @@
-# Hand-maintained Dagu counterpart of .made/workflows.yml (wf_mmozh3te_a0828).
-# Prompts intentionally summarize the command files instead of copying their procedures.
-description: Continuous Issue Resolution
+description: Latest Issue Resolution
 type: graph
 schedule: "0 * * * *"
 
