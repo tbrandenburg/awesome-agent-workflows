@@ -30,7 +30,7 @@ selection, recovery, and safety boundaries.
 
 The intended deployment is your own Dagu instance. It can run this workflow against any GitHub
 repository you can access; GitHub Actions is an optional alternative deployment, not a requirement.
-Install Dagu 2.24.0, OpenCode V2, Python 3.12+, Bash, Git, jq, and GitHub CLI on the machine that
+Install Dagu 2.25.1, OpenCode V2, Python 3.12+, Bash, Git, jq, and GitHub CLI on the machine that
 runs Dagu. Configure GitHub and Telegram credentials plus at least one usable inference provider.
 From this checkout, start a run directly:
 

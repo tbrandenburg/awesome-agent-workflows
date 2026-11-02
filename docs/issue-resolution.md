@@ -20,7 +20,7 @@ pin repository/issue/branch/PR + acquire repository lease
   -> truthful Telegram outcome -> release owned lease
 ```
 
-`reconcile_loop` uses installed Dagu 2.24.0's native `repeat_policy: until` on `dag.run`. Its
+`reconcile_loop` uses installed Dagu 2.25.1's native `repeat_policy: until` on `dag.run`. Its
 condition is checked after each child, with 30 seconds between cycles, at most 120 child cycles, and
 a two-hour overall timeout. Waiting is not a repair attempt: queued/running CI or unknown
 mergeability invokes neither worker nor reviewer. Six inference-bearing cycles bound correction and
@@ -69,7 +69,7 @@ prompts.
 
 ## Local deployment
 
-Install Dagu 2.24.0, OpenCode V2, Python 3.12+, Bash, Git, jq and GitHub CLI. Configure
+Install Dagu 2.25.1, OpenCode V2, Python 3.12+, Bash, Git, jq and GitHub CLI. Configure
 GitHub/Telegram credentials and at least one usable OpenCode provider for the execution account.
 Keep credentials outside the repository, preferably in a mode-0600 deployment dotenv file. Never
 export stored OAuth credentials into the workflow.

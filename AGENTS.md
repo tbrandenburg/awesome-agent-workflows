@@ -27,7 +27,7 @@ agent edits with the host user's permissions.
 
 ## Run issue resolution
 
-1. On the machine running your Dagu instance, install Dagu 2.24.0, OpenCode V2, Python 3.12+, Bash,
+1. On the machine running your Dagu instance, install Dagu 2.25.1, OpenCode V2, Python 3.12+, Bash,
    Git, jq, and GitHub CLI. Ensure the target repository's dependencies and validation tools are
    available.
 2. Configure `GH_TOKEN`, `TELEGRAM_BOT_TOKEN`, and `TELEGRAM_CHAT_ID`, plus at least one usable

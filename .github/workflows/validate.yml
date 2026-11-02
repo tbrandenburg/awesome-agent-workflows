@@ -36,13 +36,13 @@ jobs:
         run: |
           set -euo pipefail
           directory="$RUNNER_TEMP/dagu-tools"
-          filename=dagu_2.24.0_linux_amd64.tar.gz
+          filename=dagu_2.25.1_linux_amd64.tar.gz
           mkdir -p "$directory"
           curl --fail --silent --show-error --location --max-time 120 \
-            https://github.com/dagucloud/dagu/releases/download/v2.24.0/dagu_2.24.0_linux_amd64.tar.gz \
+            https://github.com/dagucloud/dagu/releases/download/v2.25.1/dagu_2.25.1_linux_amd64.tar.gz \
             --output "$directory/$filename"
           curl --fail --silent --show-error --location --max-time 60 \
-            https://github.com/dagucloud/dagu/releases/download/v2.24.0/checksums.txt \
+            https://github.com/dagucloud/dagu/releases/download/v2.25.1/checksums.txt \
             --output "$directory/checksums.txt"
           cd "$directory"
           awk -v file="$filename" '$2 == file || $2 == "*" file {print}' checksums.txt | sha256sum --check --strict
