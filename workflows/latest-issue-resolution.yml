@@ -122,10 +122,6 @@ params:
   - { name: branch, type: string, required: true }
 working_dir: $worktree_path
 
-secrets:
-  - { name: TELEGRAM_BOT_TOKEN, provider: env, key: TELEGRAM_BOT_TOKEN }
-  - { name: TELEGRAM_CHAT_ID, provider: env, key: TELEGRAM_CHAT_ID }
-
 harness:
   provider: opencode
   agent: build
@@ -198,7 +194,7 @@ steps:
         Post actionable findings
         as a PR comment, noting severity and useful code references.
 
-  - id: merge_and_notify
+  - id: merge_pr
     depends: [review_pr]
     action: harness.run
     with:
@@ -207,12 +203,11 @@ steps:
         Merge remotely; do not switch branches, use --delete-branch, or remove the worktree.
         Check GitHub issue #${params.issue_id} and its linked PR #${env.PR_ID} and its PR comments. Raise non-duplicate GitHub
         issues for unresolved high-priority review findings, failing CI, or merge blockers.
-        Merge when required checks pass and no blocking findings remain. If a PR was
-        processed, send a Telegram message with the outcome.
+        Merge when required checks pass and no blocking findings remain.
         Keep summary, findings and verification evidence in your response and GitHub comments.
 
   - id: worktree_head
-    depends: [merge_and_notify]
+    depends: [merge_pr]
     action: exec
     with:
       command: git
