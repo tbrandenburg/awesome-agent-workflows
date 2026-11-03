@@ -126,7 +126,6 @@ harness:
   provider: opencode
   agent: build
   model: openai/gpt-6-luna
-  standalone: true
 
 retry_policy:
   limit: 0

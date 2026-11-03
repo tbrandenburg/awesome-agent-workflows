@@ -20,4 +20,3 @@ make run WORKFLOW=workflows/latest-issue-resolution.yml DAGU_FLAGS='--params pro
 
 Agent steps use OpenCode with the model configured in the workflow and normal
 permission checks. Authenticate that provider locally before running.
-Each step uses a private OpenCode process rather than an existing background service.
