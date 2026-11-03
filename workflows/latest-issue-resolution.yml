@@ -129,7 +129,7 @@ secrets:
 harness:
   provider: opencode
   agent: build
-  model: github-copilot/gpt-6.1-sol
+  model: openai/gpt-6-luna
   auto: true
   standalone: true
 
