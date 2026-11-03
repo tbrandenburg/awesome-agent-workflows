@@ -18,5 +18,13 @@ must be writable. To target another checkout:
 make run WORKFLOW=workflows/latest-issue-resolution.yml DAGU_FLAGS='--params project_dir=/path/to/checkout'
 ```
 
+To work on a GitHub repository instead, pass `repo`. The workflow first clones it
+with `gh` (private repos work with your login) into the per-run Dagu work
+directory and runs there:
+
+```sh
+make run WORKFLOW=workflows/latest-issue-resolution.yml DAGU_FLAGS='--params repo=owner/name'
+```
+
 Agent steps use OpenCode with the model configured in the workflow and normal
 permission checks. Authenticate that provider locally before running.
