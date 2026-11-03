@@ -18,6 +18,6 @@ must be writable. To target another checkout:
 make run WORKFLOW=workflows/latest-issue-resolution.yml DAGU_FLAGS='--params project_dir=/path/to/checkout'
 ```
 
-Agent steps use OpenCode with `github-copilot/gpt-6.1-sol` and automatic permission
-approval for unattended execution. Authenticate that provider locally before running.
+Agent steps use OpenCode with the model configured in the workflow and normal
+permission checks. Authenticate that provider locally before running.
 Each step uses a private OpenCode process rather than an existing background service.
