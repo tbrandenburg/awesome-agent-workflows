@@ -18,11 +18,17 @@ steps:
   - id: clone
     preconditions:
       - { condition: '${params.repo}', expected: 're:.+' }
-    # gh clone reuses the local gh login, so private repos work too.
+    # gh reuses the local gh login, so private repos work too.
+    # Skip cloning when a step retry finds the run's clone already there.
     action: exec
     with:
-      command: gh
-      args: [repo, clone, '${params.repo}', '${env.DAG_RUN_WORK_DIR}/repo']
+      command: sh
+      args:
+        - -c
+        - '[ -d "$2/.git" ] || gh repo clone "$1" "$2"'
+        - sh
+        - ${params.repo}
+        - ${env.DAG_RUN_WORK_DIR}/repo
 
   - id: run_cloned
     depends: [clone]
