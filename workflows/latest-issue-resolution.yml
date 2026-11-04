@@ -5,10 +5,7 @@ schedule: "0 * * * *"
 params:
   - name: repo
     type: string
-    default: ""  # optional owner/name; cloned first, then project_dir is ignored
-  - name: project_dir
-    type: string
-    default: .
+    default: ""  # optional owner/name; empty runs in the current directory
 
 steps:
   - id: run_local
@@ -17,8 +14,6 @@ steps:
     action: dag.run
     with:
       dag: issue-resolution-run
-      params:
-        project_dir: ${params.project_dir}
 
   - id: clone
     preconditions:

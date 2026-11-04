@@ -12,11 +12,7 @@ The latest issue resolution workflow handles the newest open issue in the target
 checkout (this repository by default). It creates a sibling worktree named
 `<checkout>-issue-<number>` on branch `issue/<number>`, then removes the worktree
 and branch after verifying the PR was merged. The checkout's parent directory
-must be writable. To target another checkout:
-
-```sh
-make run WORKFLOW=workflows/latest-issue-resolution.yml DAGU_FLAGS='--params project_dir=/path/to/checkout'
-```
+must be writable. Run it from the checkout you want to target.
 
 To work on a GitHub repository instead, pass `repo`. The workflow first clones it
 with `gh` (private repos work with your login) into the per-run Dagu work
