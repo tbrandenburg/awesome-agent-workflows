@@ -10,8 +10,12 @@ make run WORKFLOW=workflows/latest-issue-resolution.yml
 
 The latest issue resolution workflow handles the newest open issue in the target
 checkout (this repository by default). It creates a sibling worktree named
-`<checkout>-issue-<number>` on branch `issue/<number>`, then removes the worktree
-and branch after verifying the PR was merged. The checkout's parent directory
+`<checkout>-issue-<number>` on branch `issue/<number>`. Before fixing, a planning
+step investigates the issue and publishes an `Implementation plan` issue comment
+with implementation tasks, validation commands, and acceptance criteria. The
+fixing step reads that comment, checks it against the code, and documents any
+necessary deviations. The workflow removes the worktree and branch after
+verifying the PR was merged. The checkout's parent directory
 must be writable. Run it from the checkout you want to target.
 
 To work on a GitHub repository instead, pass `repo`. The workflow first clones it

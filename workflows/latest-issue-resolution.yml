@@ -171,15 +171,33 @@ retry_policy:
   limit: 0
 
 steps:
+  - id: plan_issue
+    action: harness.run
+    with:
+      prompt: |
+        Investigate GitHub issue #${params.issue_id} and its comments against the current code
+        in ${params.worktree_path} on ${params.branch}. Do not create or switch branches,
+        modify repository files, or implement the fix.
+        Inspect its linked PR if one exists, but stop if its head branch differs.
+        Publish an implementation plan as an issue comment headed "## Implementation plan".
+        Include the scope, relevant code references, ordered implementation tasks,
+        validation commands, acceptance criteria, and any risks or open questions.
+        Verify the comment was published with gh issue view ${params.issue_id} --comments before finishing.
+        If publication fails, report the error and fail this step; do not proceed to fixing.
+
   - id: fix_issue
+    depends: [plan_issue]
     action: harness.run
     with:
       prompt: |
         Address GitHub issue #${params.issue_id} only in ${params.worktree_path}
         on feature branch ${params.branch}. Do not create or switch branches.
         Continue its linked PR if one exists, but stop if its head branch differs.
-        Use any investigation comment as guidance,
-        check it against the current code, implement a focused fix, and run relevant tests.
+        Read the issue comments with gh issue view ${params.issue_id} --comments and use the latest
+        "## Implementation plan" comment as guidance. Stop if no plan comment exists.
+        Check the plan and any investigation comments against the current code,
+        implement a focused fix, and run the plan's validation commands and relevant tests.
+        Document any necessary deviations from the plan in an issue comment.
         Keep summary, findings and verification evidence in your response and GitHub comments.
 
   - id: commit_push
