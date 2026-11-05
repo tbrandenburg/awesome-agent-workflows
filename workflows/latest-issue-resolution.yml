@@ -171,28 +171,82 @@ retry_policy:
   limit: 0
 
 steps:
-  - id: fix_issue
+  - id: plan_issue
     action: harness.run
     with:
       prompt: |
-        Address GitHub issue #${params.issue_id} only in ${params.worktree_path}
-        on feature branch ${params.branch}. Do not create or switch branches.
-        Continue its linked PR if one exists, but stop if its head branch differs.
-        Use any investigation comment as guidance,
-        check it against the current code, implement a focused fix, and run relevant tests.
-        Keep summary, findings and verification evidence in your response and GitHub comments.
+        You are running in the issue worktree on branch ${params.branch}.
+        Stay in this worktree; do not create or switch branches.
+
+        ## Purpose
+        Create an actionable implementation plan for GitHub issue #${params.issue_id}.
+
+        ## Inputs
+        Read the issue and raw comments with gh issue view ${params.issue_id} --json body,comments.
+        Inspect the current code and linked PR, if present.
+
+        ## Instructions
+        1. Stop if the linked PR has a different head branch.
+        2. Investigate the issue against the code without modifying files or implementing the fix.
+        3. Define scoped tasks, validation commands, acceptance criteria, and risks or open questions.
+
+        ## Output
+        Publish an issue comment headed "## Implementation plan" containing
+        <!-- issue-resolution:plan -->, scope, code references, and the planned work and validation.
+        Verify its marker and content with gh issue view ${params.issue_id} --json comments.
+        If publication fails, report the error and fail this step.
+
+  - id: fix_issue
+    depends: [plan_issue]
+    action: harness.run
+    with:
+      prompt: |
+        You are running in the issue worktree on branch ${params.branch}.
+        Stay in this worktree; do not create or switch branches.
+
+        ## Purpose
+        Resolve GitHub issue #${params.issue_id} with a focused, verified fix.
+
+        ## Inputs
+        Read the issue and raw comments with gh issue view ${params.issue_id} --json body,comments.
+        Use the latest comment containing <!-- issue-resolution:plan -->; stop if it is missing.
+
+        ## Instructions
+        1. Continue the linked PR if present; stop if its head branch differs.
+        2. Check the plan and investigation comments against the current code.
+        3. Implement a focused fix and relevant regression tests.
+        4. Run the plan's validation commands and relevant repository checks.
+
+        ## Output
+        Publish an issue comment containing <!-- issue-resolution:implementation --> with
+        the change summary, findings, validation evidence, deviations, and unresolved blockers.
+        Verify its marker and content with gh issue view ${params.issue_id} --json comments.
+        If publication fails, report the error and fail this step.
 
   - id: commit_push
     depends: [fix_issue]
     action: harness.run
     with:
       prompt: |
-        Review the local diff in ${params.worktree_path}, commit the related
-        changes on ${params.branch}, and push that branch.
-        Do not create or switch branches.
-        Create or update a PR linked to issue #${params.issue_id}, with a concise summary and test results.
-        Do not include unrelated changes.
-        Keep summary, findings and verification evidence in your response and GitHub comments.
+        You are running in the issue worktree on branch ${params.branch}.
+        Stay in this worktree; do not create or switch branches.
+
+        ## Purpose
+        Commit and publish the fix as a PR linked to GitHub issue #${params.issue_id}.
+
+        ## Inputs
+        Read the issue and raw comments with gh issue view ${params.issue_id} --json body,comments.
+        Use the latest comments containing <!-- issue-resolution:plan --> and
+        <!-- issue-resolution:implementation -->; stop if either is missing. Inspect the local diff.
+
+        ## Instructions
+        1. Review the diff against the plan and implementation evidence; exclude unrelated changes.
+        2. Commit the related changes and push this branch.
+        3. Create or update the linked PR with a concise summary, test results, and Closes #${params.issue_id}.
+
+        ## Output
+        Report the commit and PR URL, summary, findings, and verification evidence.
+        Verify the remote branch and PR reflect the intended commit; report errors and fail on publication failure.
 
   - id: get_linked_pr
     depends: [commit_push]
@@ -214,35 +268,79 @@ steps:
     action: harness.run
     with:
       prompt: |
-        Work only in ${params.worktree_path} on ${params.branch}.
-        Do not create or switch branches.
-        Check GitHub issue #${params.issue_id} and its linked PR #${env.PR_ID}. If CI failures or merge
-        conflicts block the PR, investigate the cause, fix it, run relevant checks,
-        and commit and push the changes. Iterate till CI is green and mergable.
-        Keep summary, findings and verification evidence in your response and GitHub comments.
+        You are running in the issue worktree on branch ${params.branch}.
+        Stay in this worktree; do not create or switch branches.
+
+        ## Purpose
+        Resolve CI failures and merge conflicts blocking PR #${env.PR_ID}.
+
+        ## Inputs
+        Read GitHub issue #${params.issue_id}, linked PR #${env.PR_ID}, and its live checks and conflicts.
+
+        ## Instructions
+        1. Investigate blocking failures or conflicts and fix their causes.
+        2. Run relevant checks, then commit and push related changes.
+        3. Recheck until CI passes and the PR is mergeable. Pending checks are not passing.
+
+        ## Output
+        Publish an issue comment containing <!-- issue-resolution:ci --> with the PR head commit,
+        CI status, fixes, and verification evidence, even when no fixes were needed.
+        Verify its marker and content with gh issue view ${params.issue_id} --json comments.
+        If publication fails, report the error and fail this step.
 
   - id: review_pr
     depends: [resolve_ci_errors]
     action: harness.run
     with:
       prompt: |
-        Work only in ${params.worktree_path} on ${params.branch}.
-        Do not create or switch branches.
-        Review PR #${env.PR_ID} adversially linked to GitHub issue #${params.issue_id}.
-        Post actionable findings
-        as a PR comment, noting severity and useful code references.
+        You are running in the issue worktree on branch ${params.branch}.
+        Stay in this worktree; do not create or switch branches.
+
+        ## Purpose
+        Review PR #${env.PR_ID} adversarially against GitHub issue #${params.issue_id}.
+
+        ## Inputs
+        Read the issue and raw comments with gh issue view ${params.issue_id} --json body,comments.
+        Use the latest comments containing <!-- issue-resolution:plan -->,
+        <!-- issue-resolution:implementation -->, and <!-- issue-resolution:ci -->; stop if any is missing.
+
+        ## Instructions
+        1. Review the actual PR diff, surrounding code, and relevant tests.
+        2. Check handoff claims against the current code and live CI.
+        3. Identify actionable findings and whether any block merging.
+
+        ## Output
+        Publish a PR comment containing <!-- issue-resolution:review --> with the reviewed head commit,
+        findings, severity, code references, and explicitly whether blockers remain.
+        Verify its marker and content with gh pr view ${env.PR_ID} --json comments.
+        If publication fails, report the error and fail this step.
 
   - id: merge_pr
     depends: [review_pr]
     action: harness.run
     with:
       prompt: |
-        Work only in ${params.worktree_path} on ${params.branch}.
-        Merge remotely; do not switch branches, use --delete-branch, or remove the worktree.
-        Check GitHub issue #${params.issue_id} and its linked PR #${env.PR_ID} and its PR comments. Raise non-duplicate GitHub
-        issues for unresolved high-priority review findings, failing CI, or merge blockers.
-        Merge when required checks pass and no blocking findings remain.
-        Keep summary, findings and verification evidence in your response and GitHub comments.
+        You are running in the issue worktree on branch ${params.branch}.
+        Stay in this worktree; do not create or switch branches.
+
+        ## Purpose
+        Merge PR #${env.PR_ID} only when checks pass and no blocking findings remain.
+
+        ## Inputs
+        Read raw issue comments with gh issue view ${params.issue_id} --json comments and PR
+        comments with gh pr view ${env.PR_ID} --json comments. Use the latest issue comment
+        containing <!-- issue-resolution:ci --> and PR comment containing
+        <!-- issue-resolution:review -->; stop if either is missing or describes a different PR head commit.
+
+        ## Instructions
+        1. Check the issue, PR, and PR comments; verify live checks and findings rather than trusting tags.
+        2. Raise non-duplicate GitHub issues for unresolved high-priority findings, failing CI, or merge blockers.
+        3. Merge remotely only when required checks pass and no blockers remain.
+           Do not use --delete-branch or remove the worktree.
+
+        ## Output
+        Verify the PR is merged and report the merge result, findings, and evidence in your response
+        and GitHub comments. If merging fails or remains blocked, report the cause and fail this step.
 
   - id: worktree_head
     depends: [merge_pr]
