@@ -8,7 +8,8 @@ make validate
 make run WORKFLOW=workflows/latest-issue-resolution.yml
 ```
 
-The latest issue resolution workflow handles the newest open issue in the target
+The latest issue resolution workflow runs manually, without a schedule, and
+handles the newest open issue in the target
 checkout (this repository by default). It creates a sibling worktree named
 `<checkout>-issue-<number>` on branch `issue/<number>`. Before fixing, a planning
 step investigates the issue and publishes an `Implementation plan` issue comment
