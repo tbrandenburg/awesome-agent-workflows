@@ -181,9 +181,11 @@ steps:
         without modifying repository files or implementing the fix.
         Inspect its linked PR if one exists, but stop if its head branch differs.
         Publish an implementation plan as an issue comment headed "## Implementation plan".
+        Include the hidden marker <!-- issue-resolution:plan --> in the comment body.
         Include the scope, relevant code references, ordered implementation tasks,
         validation commands, acceptance criteria, and any risks or open questions.
-        Verify the comment was published with gh issue view ${params.issue_id} --comments before finishing.
+        Verify the marker and plan in the raw comment bodies with
+        gh issue view ${params.issue_id} --json comments before finishing.
         If publication fails, report the error and fail this step; do not proceed to fixing.
 
   - id: fix_issue
@@ -195,12 +197,14 @@ steps:
         Stay in this worktree; do not create or switch branches.
         Address GitHub issue #${params.issue_id}.
         Continue its linked PR if one exists, but stop if its head branch differs.
-        Read the issue comments with gh issue view ${params.issue_id} --comments and use the latest
-        "## Implementation plan" comment as guidance. Stop if no plan comment exists.
+        Read raw issue comments with gh issue view ${params.issue_id} --json comments and use the latest
+        comment containing <!-- issue-resolution:plan --> as guidance. Stop if it is missing.
         Check the plan and any investigation comments against the current code,
         implement a focused fix, and run the plan's validation commands and relevant tests.
-        Document any necessary deviations from the plan in an issue comment.
-        Keep summary, findings and verification evidence in your response and GitHub comments.
+        Publish an issue comment containing <!-- issue-resolution:implementation --> with the
+        change summary, findings, verification evidence, and any deviations from the plan.
+        Verify its marker and content with gh issue view ${params.issue_id} --json comments.
+        If publication fails, report the error and fail this step.
 
   - id: commit_push
     depends: [fix_issue]
@@ -209,6 +213,9 @@ steps:
       prompt: |
         You are running in the issue worktree on branch ${params.branch}.
         Stay in this worktree; do not create or switch branches.
+        Read raw issue comments with gh issue view ${params.issue_id} --json comments.
+        Use the latest comments containing <!-- issue-resolution:plan --> and
+        <!-- issue-resolution:implementation --> as input; stop if either is missing.
         Review the local diff, commit the related changes, and push this branch.
         Create or update a PR linked to issue #${params.issue_id}, with a concise summary and test results.
         Do not include unrelated changes.
@@ -239,7 +246,10 @@ steps:
         Check GitHub issue #${params.issue_id} and its linked PR #${env.PR_ID}. If CI failures or merge
         conflicts block the PR, investigate the cause, fix it, run relevant checks,
         and commit and push the changes. Iterate till CI is green and mergable.
-        Keep summary, findings and verification evidence in your response and GitHub comments.
+        Publish an issue comment containing <!-- issue-resolution:ci --> with the PR head commit,
+        CI status, fixes, and verification evidence, even when no fixes were needed.
+        Verify its marker and content with gh issue view ${params.issue_id} --json comments.
+        If publication fails, report the error and fail this step.
 
   - id: review_pr
     depends: [resolve_ci_errors]
@@ -248,9 +258,16 @@ steps:
       prompt: |
         You are running in the issue worktree on branch ${params.branch}.
         Stay in this worktree; do not create or switch branches.
+        Read raw issue comments with gh issue view ${params.issue_id} --json comments.
+        Use the latest comments containing <!-- issue-resolution:plan -->,
+        <!-- issue-resolution:implementation -->, and <!-- issue-resolution:ci --> as input;
+        stop if any is missing. Check their claims against the current code and live CI.
         Review PR #${env.PR_ID} adversially linked to GitHub issue #${params.issue_id}.
         Post actionable findings
-        as a PR comment, noting severity and useful code references.
+        as a PR comment containing <!-- issue-resolution:review -->, noting the reviewed head
+        commit, severity, useful code references, and explicitly whether blockers remain.
+        Verify its marker and content with gh pr view ${env.PR_ID} --json comments.
+        If publication fails, report the error and fail this step.
 
   - id: merge_pr
     depends: [review_pr]
@@ -260,6 +277,11 @@ steps:
         You are running in the issue worktree on branch ${params.branch}.
         Stay in this worktree; do not create or switch branches.
         Merge remotely; do not use --delete-branch or remove the worktree.
+        Read raw issue comments with gh issue view ${params.issue_id} --json comments and PR
+        comments with gh pr view ${env.PR_ID} --json comments. Use the latest issue comment
+        containing <!-- issue-resolution:ci --> and PR comment containing
+        <!-- issue-resolution:review --> as input; stop if either is missing or describes
+        a different PR head commit. Verify live checks and findings rather than trusting tags.
         Check GitHub issue #${params.issue_id} and its linked PR #${env.PR_ID} and its PR comments. Raise non-duplicate GitHub
         issues for unresolved high-priority review findings, failing CI, or merge blockers.
         Merge when required checks pass and no blocking findings remain.

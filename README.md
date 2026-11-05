@@ -14,7 +14,12 @@ checkout (this repository by default). It creates a sibling worktree named
 step investigates the issue and publishes an `Implementation plan` issue comment
 with implementation tasks, validation commands, and acceptance criteria. The
 fixing step reads that comment, checks it against the code, and documents any
-necessary deviations. The workflow removes the worktree and branch after
+necessary deviations. Plan, implementation, and CI issue comments carry hidden
+`<!-- issue-resolution:plan -->`, `<!-- issue-resolution:implementation -->`, and
+`<!-- issue-resolution:ci -->` markers; PR review comments use
+`<!-- issue-resolution:review -->`. Downstream agents read raw comment bodies to
+find these handoffs and check them against the current code and PR head.
+The workflow removes the worktree and branch after
 verifying the PR was merged. The checkout's parent directory
 must be writable. Run it from the checkout you want to target.
 
