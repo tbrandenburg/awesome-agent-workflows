@@ -32,4 +32,5 @@ make run WORKFLOW=workflows/latest-issue-resolution.yml DAGU_FLAGS='--params rep
 ```
 
 Agent steps use OpenCode with the model configured in the workflow and normal
-permission checks. Authenticate that provider locally before running.
+permission checks. Prompts state their purpose, inputs, instructions, and output
+after a brief worktree context. Authenticate that provider locally before running.
