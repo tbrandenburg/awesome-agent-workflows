@@ -13,9 +13,13 @@ handles the newest open issue in the target
 checkout (this repository by default). It creates a sibling worktree named
 `<checkout>-issue-<number>` on branch `issue/<number>`. Before fixing, a planning
 step investigates the issue and publishes an `Implementation plan` issue comment
-with implementation tasks, validation commands, and acceptance criteria. The
-fixing step reads that comment, checks it against the code, and documents any
-necessary deviations. Plan, implementation, and CI issue comments carry hidden
+with background and goals, scope and constraints, a KISS approach, detailed tasks
+for a junior fixer, risks, acceptance criteria, a Definition of Done, automated
+validation commands, and a final manual E2E acceptance checklist. The fixing step
+checks the plan against the code, runs automated checks followed by real-system
+manual E2E acceptance without mocks, and records evidence, checklist results,
+and deviations. Unmet criteria or missing test prerequisites block completion.
+Plan, implementation, and CI issue comments carry hidden
 `<!-- issue-resolution:plan -->`, `<!-- issue-resolution:implementation -->`, and
 `<!-- issue-resolution:ci -->` markers; PR review comments use
 `<!-- issue-resolution:review -->`. Downstream agents read raw comment bodies to
