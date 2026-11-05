@@ -173,6 +173,7 @@ retry_policy:
 steps:
   - id: plan_issue
     action: harness.run
+    timeout_sec: 900
     with:
       prompt: |
         You are running in the issue worktree on branch ${params.branch}.
@@ -187,18 +188,21 @@ steps:
 
         ## Instructions
         1. Stop if the linked PR has a different head branch.
-        2. Investigate the issue against the code without modifying files or implementing the fix.
+        2. Investigate the issue against the code without modifying repository files or implementing the fix.
         3. Define scoped tasks, validation commands, acceptance criteria, and risks or open questions.
 
         ## Output
         Publish an issue comment headed "## Implementation plan" containing
         <!-- issue-resolution:plan -->, scope, code references, and the planned work and validation.
+        Write Markdown to a temporary UTF-8 file and publish with gh issue comment --body-file.
+        Never embed Markdown in an inline --body argument. Remove the file after verification.
         Verify its marker and content with gh issue view ${params.issue_id} --json comments.
         If publication fails, report the error and fail this step.
 
   - id: fix_issue
     depends: [plan_issue]
     action: harness.run
+    timeout_sec: 900
     with:
       prompt: |
         You are running in the issue worktree on branch ${params.branch}.
@@ -220,12 +224,15 @@ steps:
         ## Output
         Publish an issue comment containing <!-- issue-resolution:implementation --> with
         the change summary, findings, validation evidence, deviations, and unresolved blockers.
+        Write Markdown to a temporary UTF-8 file and publish with gh issue comment --body-file.
+        Never embed Markdown in an inline --body argument. Remove the file after verification.
         Verify its marker and content with gh issue view ${params.issue_id} --json comments.
         If publication fails, report the error and fail this step.
 
   - id: commit_push
     depends: [fix_issue]
     action: harness.run
+    timeout_sec: 900
     with:
       prompt: |
         You are running in the issue worktree on branch ${params.branch}.
@@ -243,6 +250,8 @@ steps:
         1. Review the diff against the plan and implementation evidence; exclude unrelated changes.
         2. Commit the related changes and push this branch.
         3. Create or update the linked PR with a concise summary, test results, and Closes #${params.issue_id}.
+           Write Markdown to a temporary UTF-8 file; use --body-file with gh pr create or gh pr edit.
+           Never embed Markdown in an inline --body argument. Remove the file after verification.
 
         ## Output
         Report the commit and PR URL, summary, findings, and verification evidence.
@@ -266,6 +275,7 @@ steps:
   - id: resolve_ci_errors
     depends: [get_linked_pr]
     action: harness.run
+    timeout_sec: 900
     with:
       prompt: |
         You are running in the issue worktree on branch ${params.branch}.
@@ -285,12 +295,15 @@ steps:
         ## Output
         Publish an issue comment containing <!-- issue-resolution:ci --> with the PR head commit,
         CI status, fixes, and verification evidence, even when no fixes were needed.
+        Write Markdown to a temporary UTF-8 file and publish with gh issue comment --body-file.
+        Never embed Markdown in an inline --body argument. Remove the file after verification.
         Verify its marker and content with gh issue view ${params.issue_id} --json comments.
         If publication fails, report the error and fail this step.
 
   - id: review_pr
     depends: [resolve_ci_errors]
     action: harness.run
+    timeout_sec: 900
     with:
       prompt: |
         You are running in the issue worktree on branch ${params.branch}.
@@ -312,12 +325,15 @@ steps:
         ## Output
         Publish a PR comment containing <!-- issue-resolution:review --> with the reviewed head commit,
         findings, severity, code references, and explicitly whether blockers remain.
+        Write Markdown to a temporary UTF-8 file and publish with gh pr comment --body-file.
+        Never embed Markdown in an inline --body argument. Remove the file after verification.
         Verify its marker and content with gh pr view ${env.PR_ID} --json comments.
         If publication fails, report the error and fail this step.
 
   - id: merge_pr
     depends: [review_pr]
     action: harness.run
+    timeout_sec: 900
     with:
       prompt: |
         You are running in the issue worktree on branch ${params.branch}.
@@ -341,6 +357,8 @@ steps:
         ## Output
         Verify the PR is merged and report the merge result, findings, and evidence in your response
         and GitHub comments. If merging fails or remains blocked, report the cause and fail this step.
+        Write Markdown to temporary UTF-8 files; use --body-file with gh issue comment,
+        gh pr comment, or gh issue create. Never use inline --body. Remove files after verification.
 
   - id: worktree_head
     depends: [merge_pr]
