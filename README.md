@@ -34,6 +34,9 @@ make run WORKFLOW=workflows/latest-issue-resolution.yml DAGU_FLAGS='--params rep
 Agent steps use OpenCode with the model configured in the workflow and normal
 permission checks. Prompts state their purpose, inputs, instructions, and output
 after a brief worktree context. Markdown publication uses temporary UTF-8 files
-with `gh --body-file`, not inline shell arguments. Each agent step has a
-15-minute timeout; failed runs retain unfinished worktrees for recovery.
+with `gh --body-file`, not inline shell arguments. Agent timeouts are 1 hour for
+planning and review, 4 hours for implementation, 2 hours for CI repair, and
+15 minutes for PR publication and merging. Failed runs retain unfinished
+worktrees for recovery. The enclosing runner must allow the required runtime;
+the six agent-step limits total 8.5 hours before other steps or retries.
 Authenticate that provider locally before running.

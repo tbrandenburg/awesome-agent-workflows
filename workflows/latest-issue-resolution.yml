@@ -173,7 +173,7 @@ retry_policy:
 steps:
   - id: plan_issue
     action: harness.run
-    timeout_sec: 900
+    timeout_sec: 3600
     with:
       prompt: |
         You are running in the issue worktree on branch ${params.branch}.
@@ -202,7 +202,7 @@ steps:
   - id: fix_issue
     depends: [plan_issue]
     action: harness.run
-    timeout_sec: 900
+    timeout_sec: 14400
     with:
       prompt: |
         You are running in the issue worktree on branch ${params.branch}.
@@ -275,7 +275,7 @@ steps:
   - id: resolve_ci_errors
     depends: [get_linked_pr]
     action: harness.run
-    timeout_sec: 900
+    timeout_sec: 7200
     with:
       prompt: |
         You are running in the issue worktree on branch ${params.branch}.
@@ -303,7 +303,7 @@ steps:
   - id: review_pr
     depends: [resolve_ci_errors]
     action: harness.run
-    timeout_sec: 900
+    timeout_sec: 3600
     with:
       prompt: |
         You are running in the issue worktree on branch ${params.branch}.
