@@ -180,7 +180,7 @@ steps:
         Stay in this worktree; do not create or switch branches.
 
         ## Purpose
-        Create an actionable implementation plan for GitHub issue #${params.issue_id}.
+        Create a self-contained implementation plan a junior fixer can follow for GitHub issue #${params.issue_id}.
 
         ## Inputs
         Read the issue and raw comments with gh issue view ${params.issue_id} --json body,comments.
@@ -189,11 +189,26 @@ steps:
         ## Instructions
         1. Stop if the linked PR has a different head branch.
         2. Investigate the issue against the code without modifying repository files or implementing the fix.
-        3. Define scoped tasks, validation commands, acceptance criteria, and risks or open questions.
+        3. Explain the background, current behavior, desired outcome, goals, scope, non-goals, and constraints.
+        4. Apply KISS: choose the simplest sufficient fix, reuse existing patterns, and avoid speculative abstractions
+           or unrelated refactors. Explain why this approach meets the goals.
+        5. Give ordered, detailed implementation tasks for a junior: exact files and symbols, code references,
+           what to change and why, dependencies, and regression tests. Verify references against the code;
+           distinguish confirmed facts from assumptions and flag risks or open questions.
+        6. Define numbered, observable acceptance criteria tied to the goals and their verification steps.
+           Add a Definition of Done checklist covering the fix, regression tests, repository checks,
+           relevant documentation, manual E2E acceptance, and recorded evidence; unresolved blockers mean not done.
+        7. Specify setup, prerequisites, validation commands, and expected results. End the plan with a final
+           manual E2E acceptance checklist to execute after automated checks: real user-facing UI, CLI, or API
+           flows without mocks, test inputs, exact actions, expected observable results, failure cases, evidence
+           to capture, and safe cleanup. Map scenarios to acceptance criteria; unavailable prerequisites are blockers,
+           not permission to skip testing or claim success.
 
         ## Output
         Publish an issue comment headed "## Implementation plan" containing
-        <!-- issue-resolution:plan -->, scope, code references, and the planned work and validation.
+        <!-- issue-resolution:plan --> and sections for Background and goals, Scope and constraints,
+        KISS approach, Junior implementation tasks, Risks and open questions, Acceptance criteria,
+        Definition of Done, Automated validation, and Final manual E2E acceptance testing.
         Write Markdown to a temporary UTF-8 file and publish with gh issue comment --body-file.
         Never embed Markdown in an inline --body argument. Remove the file after verification.
         Verify its marker and content with gh issue view ${params.issue_id} --json comments.
@@ -220,10 +235,14 @@ steps:
         2. Check the plan and investigation comments against the current code.
         3. Implement a focused fix and relevant regression tests.
         4. Run the plan's validation commands and relevant repository checks.
+        5. After automated checks, execute the plan's final manual E2E acceptance checklist against the real system
+           without mocks. Record actual results and evidence for each acceptance criterion and Definition of Done
+           item. Missing prerequisites or unmet items are blockers; do not claim completion and fail this step.
 
         ## Output
         Publish an issue comment containing <!-- issue-resolution:implementation --> with
-        the change summary, findings, validation evidence, deviations, and unresolved blockers.
+        the change summary, findings, automated and manual E2E evidence, acceptance criteria and Definition of Done
+        checklist results, deviations, and unresolved blockers.
         Write Markdown to a temporary UTF-8 file and publish with gh issue comment --body-file.
         Never embed Markdown in an inline --body argument. Remove the file after verification.
         Verify its marker and content with gh issue view ${params.issue_id} --json comments.
