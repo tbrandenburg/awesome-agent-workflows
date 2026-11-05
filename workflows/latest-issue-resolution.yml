@@ -175,9 +175,10 @@ steps:
     action: harness.run
     with:
       prompt: |
+        You are running in the issue worktree on branch ${params.branch}.
+        Stay in this worktree; do not create or switch branches.
         Investigate GitHub issue #${params.issue_id} and its comments against the current code
-        in ${params.worktree_path} on ${params.branch}. Do not create or switch branches,
-        modify repository files, or implement the fix.
+        without modifying repository files or implementing the fix.
         Inspect its linked PR if one exists, but stop if its head branch differs.
         Publish an implementation plan as an issue comment headed "## Implementation plan".
         Include the scope, relevant code references, ordered implementation tasks,
@@ -190,8 +191,9 @@ steps:
     action: harness.run
     with:
       prompt: |
-        Address GitHub issue #${params.issue_id} only in ${params.worktree_path}
-        on feature branch ${params.branch}. Do not create or switch branches.
+        You are running in the issue worktree on branch ${params.branch}.
+        Stay in this worktree; do not create or switch branches.
+        Address GitHub issue #${params.issue_id}.
         Continue its linked PR if one exists, but stop if its head branch differs.
         Read the issue comments with gh issue view ${params.issue_id} --comments and use the latest
         "## Implementation plan" comment as guidance. Stop if no plan comment exists.
@@ -205,9 +207,9 @@ steps:
     action: harness.run
     with:
       prompt: |
-        Review the local diff in ${params.worktree_path}, commit the related
-        changes on ${params.branch}, and push that branch.
-        Do not create or switch branches.
+        You are running in the issue worktree on branch ${params.branch}.
+        Stay in this worktree; do not create or switch branches.
+        Review the local diff, commit the related changes, and push this branch.
         Create or update a PR linked to issue #${params.issue_id}, with a concise summary and test results.
         Do not include unrelated changes.
         Keep summary, findings and verification evidence in your response and GitHub comments.
@@ -232,8 +234,8 @@ steps:
     action: harness.run
     with:
       prompt: |
-        Work only in ${params.worktree_path} on ${params.branch}.
-        Do not create or switch branches.
+        You are running in the issue worktree on branch ${params.branch}.
+        Stay in this worktree; do not create or switch branches.
         Check GitHub issue #${params.issue_id} and its linked PR #${env.PR_ID}. If CI failures or merge
         conflicts block the PR, investigate the cause, fix it, run relevant checks,
         and commit and push the changes. Iterate till CI is green and mergable.
@@ -244,8 +246,8 @@ steps:
     action: harness.run
     with:
       prompt: |
-        Work only in ${params.worktree_path} on ${params.branch}.
-        Do not create or switch branches.
+        You are running in the issue worktree on branch ${params.branch}.
+        Stay in this worktree; do not create or switch branches.
         Review PR #${env.PR_ID} adversially linked to GitHub issue #${params.issue_id}.
         Post actionable findings
         as a PR comment, noting severity and useful code references.
@@ -255,8 +257,9 @@ steps:
     action: harness.run
     with:
       prompt: |
-        Work only in ${params.worktree_path} on ${params.branch}.
-        Merge remotely; do not switch branches, use --delete-branch, or remove the worktree.
+        You are running in the issue worktree on branch ${params.branch}.
+        Stay in this worktree; do not create or switch branches.
+        Merge remotely; do not use --delete-branch or remove the worktree.
         Check GitHub issue #${params.issue_id} and its linked PR #${env.PR_ID} and its PR comments. Raise non-duplicate GitHub
         issues for unresolved high-priority review findings, failing CI, or merge blockers.
         Merge when required checks pass and no blocking findings remain.
