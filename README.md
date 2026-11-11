@@ -6,11 +6,14 @@ and authenticated GitHub CLI:
 ```sh
 make validate
 make run WORKFLOW=workflows/latest-issue-resolution.yml
+make run WORKFLOW=workflows/issue-resolution.yml DAGU_FLAGS='--params issue_id=42'
 ```
 
-The latest issue resolution workflow runs manually, without a schedule, and
-handles the newest open issue in the target
-checkout (this repository by default). It creates a sibling worktree named
+`issue-resolution` resolves one given open issue. `latest-issue-resolution` is a
+thin wrapper that picks the newest open issue and runs `issue-resolution` on it;
+both run manually, without a schedule, in the target
+checkout (this repository by default). `issue-resolution` must be registered
+in the Dagu DAGs directory (e.g. symlinked) for the wrapper to find it. It creates a sibling worktree named
 `<checkout>-issue-<number>` on branch `issue/<number>`. Before fixing, a planning
 step investigates the issue and publishes an `Implementation plan` issue comment
 with background and goals, scope and constraints, a KISS approach, detailed tasks
@@ -30,7 +33,7 @@ must be writable. Run it from the checkout you want to target.
 
 To work on a GitHub repository instead, pass `repo`. The workflow first clones it
 with `gh` (private repos work with your login) into the per-run Dagu work
-directory and runs there:
+directory and runs there (both workflows accept `repo`):
 
 ```sh
 make run WORKFLOW=workflows/latest-issue-resolution.yml DAGU_FLAGS='--params repo=owner/name'
