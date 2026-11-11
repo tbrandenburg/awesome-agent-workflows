@@ -1,0 +1,20 @@
+description: Run a prompt in a fresh worktree of each listed repo
+type: graph
+
+params:
+  - { name: repos, type: string, required: true }  # one owner/name per line
+  - { name: prompt, type: string, required: true }
+  - { name: branch, type: string, default: chore/agent-task }
+
+steps:
+  - id: per_repo
+    action: dag.run
+    parallel:
+      items: ${params.repos}
+      max_concurrent: 2
+    with:
+      dag: repo-prompt.yml
+      params:
+        repo: ${ITEM}
+        prompt: ${params.prompt}
+        branch: ${params.branch}

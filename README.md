@@ -39,6 +39,20 @@ directory and runs there (both workflows accept `repo`):
 make run WORKFLOW=workflows/latest-issue-resolution.yml DAGU_FLAGS='--params repo=owner/name'
 ```
 
+`multi-repo-prompt` runs any prompt in a fresh worktree of each listed repo, up to
+two at a time. `repos` holds one `owner/name` per line; each repo is handled by
+`repo-prompt`, which clones it into `~/.cache/repo-task/<owner>/<name>` if missing,
+fetches, adds a worktree on `branch` off the default branch, runs the prompt with
+OpenCode, and always removes the worktree and local branch afterwards (success,
+failure, or cancel). Publish anything worth keeping (commit, push, PR) in the prompt.
+Prompts must not contain double quotes. Start it by file path so the sibling
+`repo-prompt.yml` is found (Dagu does not follow symlinks for sub-DAGs):
+
+```sh
+dagu start workflows/multi-repo-prompt.yml --params 'repos="owner/a
+owner/b" prompt="Update all dependencies to latest and open a PR." branch=chore/update-deps'
+```
+
 Agent steps use OpenCode with the model configured in the workflow and normal
 permission checks. Planning uses `github-copilot/gpt-6.1-sol`; implementation,
 PR publication, CI repair, review, and merging use `openai/gpt-6-luna`.
