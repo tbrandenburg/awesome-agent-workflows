@@ -311,11 +311,14 @@ steps:
         ## Instructions
         1. Investigate blocking failures or conflicts and fix their causes.
         2. Run relevant checks, then commit and push related changes.
-        3. Recheck until CI passes and the PR is mergeable. Pending checks are not passing.
+        3. Recheck until the PR is mergeable and every reported check passes. Pending checks are not passing.
+           A repository may report no checks: after pushing, wait up to 2 minutes for checks to appear,
+           and if none do, record "no CI checks" and treat mergeability alone as the criterion.
 
         ## Output
         Publish an issue comment containing <!-- issue-resolution:ci --> with the PR head commit,
-        CI status, fixes, and verification evidence, even when no fixes were needed.
+        CI status (green, failing, or no checks), mergeability, fixes, and verification evidence,
+        even when no fixes were needed.
         Write Markdown to a temporary UTF-8 file and publish with gh issue comment --body-file.
         Never embed Markdown in an inline --body argument. Remove the file after verification.
         Verify its marker and content with gh issue view ${params.issue_id} --json comments.
@@ -340,7 +343,7 @@ steps:
 
         ## Instructions
         1. Review the actual PR diff, surrounding code, and relevant tests.
-        2. Check handoff claims against the current code and live CI.
+        2. Check handoff claims against the current code, live mergeability, and live CI (if any checks exist).
         3. Identify actionable findings and whether any block merging.
 
         ## Output
@@ -361,7 +364,7 @@ steps:
         Stay in this worktree; do not create or switch branches.
 
         ## Purpose
-        Merge PR #${env.PR_ID} only when checks pass and no blocking findings remain.
+        Merge PR #${env.PR_ID} when it is mergeable, its checks (if any) pass, and no blocking findings remain.
 
         ## Inputs
         Read raw issue comments with gh issue view ${params.issue_id} --json comments and PR
@@ -372,7 +375,9 @@ steps:
         ## Instructions
         1. Check the issue, PR, and PR comments; verify live checks and findings rather than trusting tags.
         2. Raise non-duplicate GitHub issues for unresolved high-priority findings, failing CI, or merge blockers.
-        3. Merge remotely only when required checks pass and no blockers remain.
+        3. Merge remotely when the PR is mergeable and all reported checks pass. If the PR reports no checks at all
+           (gh pr checks and the commit check-runs are empty), mergeability alone is sufficient; failing or
+           pending checks still block. No-CI is not a blocker, so do not raise an issue for it.
            Do not use --delete-branch or remove the worktree.
 
         ## Output
