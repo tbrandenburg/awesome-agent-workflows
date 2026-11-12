@@ -6,6 +6,9 @@ params:
   - { name: prompt, type: string, required: true }
   - { name: branch, type: string, default: chore/agent-task }
 
+env:
+  - PROMPT: ${params.prompt}
+
 steps:
   - id: per_repo
     action: dag.run
@@ -16,5 +19,4 @@ steps:
       dag: repo-prompt.yml
       params:
         repo: ${ITEM}
-        prompt: ${params.prompt}
         branch: ${params.branch}
