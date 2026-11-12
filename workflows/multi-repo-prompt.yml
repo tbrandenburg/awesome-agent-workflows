@@ -6,11 +6,21 @@ params:
   - { name: prompt, type: string, required: true }
   - { name: branch, type: string, default: chore/agent-task }
 
-env:
-  - PROMPT: ${params.prompt}
-
 steps:
+  # Dagu does not escape quotes when handing params to a child DAG.
+  - id: escaped_prompt
+    action: exec
+    with:
+      command: sh
+      args:
+        - -c
+        - 'printf %s "$1" | sed "s/[\\\\\"]/\\\\&/g"'
+        - sh
+        - ${params.prompt}
+    output: ESCAPED_PROMPT
+
   - id: per_repo
+    depends: [escaped_prompt]
     action: dag.run
     parallel:
       items: ${params.repos}
@@ -19,4 +29,5 @@ steps:
       dag: repo-prompt.yml
       params:
         repo: ${ITEM}
+        prompt: ${env.ESCAPED_PROMPT}
         branch: ${params.branch}
