@@ -1,0 +1,83 @@
+description: Run a prompt in a fresh worktree of one repo, then tidy up
+type: graph
+
+params:
+  - { name: repo, type: string, required: true }
+  - { name: prompt, type: string, required: true }
+  - { name: branch, type: string, required: true }
+
+env:
+  - CLONE: ${HOME}/.cache/repo-task/${params.repo}
+  - WT: ${DAG_RUN_WORK_DIR}/wt
+
+harness:
+  provider: opencode
+  agent: build
+
+retry_policy:
+  limit: 0
+
+# Idempotent cleanup after success or failure. Dagu runs no handler on cancel;
+# the stale step below tidies what a cancelled run left behind.
+handler_on:
+  exit:
+    action: exec
+    with:
+      command: sh
+      args:
+        - -c
+        - 'git -C "$1" worktree remove --force "$2"; git -C "$1" worktree prune; git -C "$1" branch -D "$3"; true'
+        - sh
+        - ${env.CLONE}
+        - ${env.WT}
+        - ${params.branch}
+
+steps:
+  - id: ensure_clone
+    action: exec
+    with:
+      command: sh
+      args:
+        - -c
+        - '[ -d "$2/.git" ] || gh repo clone "$1" "$2"; git -C "$2" fetch origin'
+        - sh
+        - ${params.repo}
+        - ${env.CLONE}
+
+  - id: stale
+    depends: [ensure_clone]
+    action: exec
+    with:
+      command: sh
+      args:
+        - -c
+        - 'git -C "$1" worktree list --porcelain | grep -x -B2 "branch refs/heads/$2" | sed -n "s/^worktree //p" | while read -r w; do git -C "$1" worktree remove --force "$w"; done; git -C "$1" worktree prune; git -C "$1" branch -D "$2" || true'
+        - sh
+        - ${env.CLONE}
+        - ${params.branch}
+
+  - id: default_branch
+    depends: [stale]
+    action: exec
+    with:
+      command: git
+      args: [-C, "${env.CLONE}", symbolic-ref, --short, refs/remotes/origin/HEAD]
+    output: BASE
+
+  - id: worktree
+    depends: [default_branch]
+    action: exec
+    with:
+      command: git
+      args: [-C, "${env.CLONE}", worktree, add, -B, "${params.branch}", "${env.WT}", "${env.BASE}"]
+
+  - id: run_prompt
+    depends: [worktree]
+    action: harness.run
+    timeout_sec: 3600
+    with:
+      prompt: |
+        Work only in ${env.WT} on branch ${params.branch}; do not switch branches.
+        The worktree is deleted afterwards, so publish anything worth keeping before finishing.
+
+        ${params.prompt}

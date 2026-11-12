@@ -12,8 +12,9 @@ make run WORKFLOW=workflows/issue-resolution.yml DAGU_FLAGS='--params issue_id=4
 `issue-resolution` resolves one given open issue. `latest-issue-resolution` is a
 thin wrapper that picks the newest open issue and runs `issue-resolution` on it;
 both run manually, without a schedule, in the target
-checkout (this repository by default). `issue-resolution` must be registered
-in the Dagu DAGs directory (e.g. symlinked) for the wrapper to find it. It creates a sibling worktree named
+checkout (this repository by default). The wrapper finds `issue-resolution.yml`
+next to itself, so start it by file path (Dagu does not follow symlinks for sub-DAGs).
+`issue-resolution` creates a sibling worktree named
 `<checkout>-issue-<number>` on branch `issue/<number>`. Before fixing, a planning
 step investigates the issue and publishes an `Implementation plan` issue comment
 with background and goals, scope and constraints, a KISS approach, detailed tasks
@@ -37,6 +38,21 @@ directory and runs there (both workflows accept `repo`):
 
 ```sh
 make run WORKFLOW=workflows/latest-issue-resolution.yml DAGU_FLAGS='--params repo=owner/name'
+```
+
+`multi-repo-prompt` runs any prompt in a fresh worktree of each listed repo, up to
+two at a time. `repos` holds one `owner/name` per line; each repo is handled by
+`repo-prompt`, which clones it into `~/.cache/repo-task/<owner>/<name>` if missing,
+fetches, adds a worktree on `branch` off the default branch, runs the prompt with
+OpenCode, and removes the worktree and local branch afterwards (success or
+failure). Dagu runs no handlers on cancel, so a cancelled run leaves its worktree
+until the next run on that repo and branch removes it first. Publish anything worth keeping (commit, push, PR) in the prompt.
+Prompts must not contain double quotes. Start it by file path so the sibling
+`repo-prompt.yml` is found (Dagu does not follow symlinks for sub-DAGs):
+
+```sh
+dagu start workflows/multi-repo-prompt.yml --params 'repos="owner/a
+owner/b" prompt="Update all dependencies to latest and open a PR." branch=chore/update-deps'
 ```
 
 Agent steps use OpenCode with the model configured in the workflow and normal
