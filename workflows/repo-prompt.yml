@@ -3,7 +3,6 @@ type: graph
 
 params:
   - { name: repo, type: string, required: true }
-  - { name: prompt, type: string, required: true }
   - { name: branch, type: string, required: true }
 
 env:
@@ -80,4 +79,4 @@ steps:
         Work only in ${env.WT} on branch ${params.branch}; do not switch branches.
         The worktree is deleted afterwards, so publish anything worth keeping before finishing.
 
-        ${params.prompt}
+        ${env.PROMPT}

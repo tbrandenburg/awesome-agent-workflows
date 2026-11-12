@@ -47,7 +47,8 @@ fetches, adds a worktree on `branch` off the default branch, runs the prompt wit
 OpenCode, and removes the worktree and local branch afterwards (success or
 failure). Dagu runs no handlers on cancel, so a cancelled run leaves its worktree
 until the next run on that repo and branch removes it first. Publish anything worth keeping (commit, push, PR) in the prompt.
-Prompts must not contain double quotes. Start it by file path so the sibling
+The prompt reaches `repo-prompt` through the `PROMPT` environment variable, so quotes
+and other special characters survive intact (run `repo-prompt` alone with `PROMPT` set). Start it by file path so the sibling
 `repo-prompt.yml` is found (Dagu does not follow symlinks for sub-DAGs):
 
 ```sh
