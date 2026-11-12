@@ -12,8 +12,9 @@ make run WORKFLOW=workflows/issue-resolution.yml DAGU_FLAGS='--params issue_id=4
 `issue-resolution` resolves one given open issue. `latest-issue-resolution` is a
 thin wrapper that picks the newest open issue and runs `issue-resolution` on it;
 both run manually, without a schedule, in the target
-checkout (this repository by default). `issue-resolution` must be registered
-in the Dagu DAGs directory (e.g. symlinked) for the wrapper to find it. It creates a sibling worktree named
+checkout (this repository by default). The wrapper finds `issue-resolution.yml`
+next to itself, so start it by file path (Dagu does not follow symlinks for sub-DAGs).
+`issue-resolution` creates a sibling worktree named
 `<checkout>-issue-<number>` on branch `issue/<number>`. Before fixing, a planning
 step investigates the issue and publishes an `Implementation plan` issue comment
 with background and goals, scope and constraints, a KISS approach, detailed tasks

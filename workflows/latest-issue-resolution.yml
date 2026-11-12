@@ -22,7 +22,7 @@ steps:
     depends: [latest_issue]
     action: dag.run
     with:
-      dag: issue-resolution
+      dag: issue-resolution.yml
       params:
         issue_id: ${env.ISSUE_ID}
         repo: ${params.repo}
