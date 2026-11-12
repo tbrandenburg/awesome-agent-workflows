@@ -44,8 +44,9 @@ make run WORKFLOW=workflows/latest-issue-resolution.yml DAGU_FLAGS='--params rep
 two at a time. `repos` holds one `owner/name` per line; each repo is handled by
 `repo-prompt`, which clones it into `~/.cache/repo-task/<owner>/<name>` if missing,
 fetches, adds a worktree on `branch` off the default branch, runs the prompt with
-OpenCode, and always removes the worktree and local branch afterwards (success,
-failure, or cancel). Publish anything worth keeping (commit, push, PR) in the prompt.
+OpenCode, and removes the worktree and local branch afterwards (success or
+failure). Dagu runs no handlers on cancel, so a cancelled run leaves its worktree
+until the next run on that repo and branch removes it first. Publish anything worth keeping (commit, push, PR) in the prompt.
 Prompts must not contain double quotes. Start it by file path so the sibling
 `repo-prompt.yml` is found (Dagu does not follow symlinks for sub-DAGs):
 

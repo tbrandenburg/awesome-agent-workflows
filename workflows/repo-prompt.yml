@@ -17,7 +17,8 @@ harness:
 retry_policy:
   limit: 0
 
-# Runs on success, failure, cancel and timeout; idempotent.
+# Idempotent cleanup after success or failure. Dagu runs no handler on cancel;
+# the stale step below tidies what a cancelled run left behind.
 handler_on:
   exit:
     action: exec
@@ -43,8 +44,20 @@ steps:
         - ${params.repo}
         - ${env.CLONE}
 
-  - id: default_branch
+  - id: stale
     depends: [ensure_clone]
+    action: exec
+    with:
+      command: sh
+      args:
+        - -c
+        - 'git -C "$1" worktree list --porcelain | grep -x -B2 "branch refs/heads/$2" | sed -n "s/^worktree //p" | while read -r w; do git -C "$1" worktree remove --force "$w"; done; git -C "$1" worktree prune; git -C "$1" branch -D "$2" || true'
+        - sh
+        - ${env.CLONE}
+        - ${params.branch}
+
+  - id: default_branch
+    depends: [stale]
     action: exec
     with:
       command: git
