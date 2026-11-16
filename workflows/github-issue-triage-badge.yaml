@@ -1,0 +1,94 @@
+description: Pick a batch of untriaged GitHub issues across personal repos (param count, default 3) and triage each via the github-issue-triage sub-DAG
+
+schedule: "0 * * * *"
+
+params:
+  type: object
+  properties:
+    count:
+      type: integer
+      description: Number of issues to address per run
+      default: 3
+      minimum: 1
+      maximum: 10
+overlap_policy: skip
+timeout_sec: 1800
+
+steps:
+  - id: fetch_issues
+    run: |
+      set -eu
+
+      OWNER=$(gh api user --jq '.login')
+
+      CUTOFF=$(python3 - <<'PY'
+      from datetime import datetime, timezone
+      from calendar import monthrange
+
+      now = datetime.now(timezone.utc)
+      index = now.year * 12 + now.month - 4
+      year, month0 = divmod(index, 12)
+      month = month0 + 1
+      day = min(now.day, monthrange(year, month)[1])
+
+      print(now.replace(
+          year=year, month=month, day=day
+      ).strftime("%Y-%m-%d"))
+      PY
+      )
+
+      WAITING=$(gh search issues \
+        --owner "$OWNER" \
+        --state open \
+        --archived=false \
+        --label needs-info \
+        --updated "<=$CUTOFF" \
+        --sort updated \
+        --order asc \
+        --limit 1 \
+        --json url \
+        --jq 'map(.url)' \
+        -- -label:triaged)
+
+      PENDING=$(gh search issues \
+        --owner "$OWNER" \
+        --state open \
+        --archived=false \
+        --sort created \
+        --order asc \
+        --limit 10 \
+        --json url \
+        --jq '.[].url' \
+        -- -label:triaged -label:needs-info \
+        | shuf -n ${params.count} | jq -R . | jq -sc .)
+
+      ISSUES=$(jq -cn \
+        --argjson waiting "$WAITING" \
+        --argjson pending "$PENDING" '
+          reduce ($waiting + $pending)[] as $url (
+            [];
+            if index($url) then . else . + [$url] end
+          ) | .[:${params.count}]
+        ')
+
+      printf 'issues=%s\n' "$ISSUES" >> "$DAGU_OUTPUT_FILE"
+
+    outputs:
+      - name: issues
+        type: json
+
+  - id: triage_issues
+    depends: fetch_issues
+    preconditions:
+      - condition: ${steps.fetch_issues.outputs.issues}
+        expected: 're:^.{3,}$'
+    continue_on:
+      skipped: true
+    action: dag.run
+    with:
+      dag: github-issue-triage
+      params:
+        issue_url: ${ITEM}
+    parallel:
+      items: ${steps.fetch_issues.outputs.issues}
+      max_concurrent: 3
