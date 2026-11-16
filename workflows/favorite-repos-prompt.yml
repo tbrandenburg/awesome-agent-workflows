@@ -1,0 +1,17 @@
+description: Run a prompt in a fresh worktree of each repo in the server-side favorite_user_repo_list const
+type: graph
+
+params:
+  - { name: prompt, type: string, required: true }
+  - { name: branch, type: string, default: chore/agent-task }
+
+steps:
+  # favorite_user_repo_list is a newline-separated owner/name const in the DAGU base config.
+  - id: run_all
+    action: dag.run
+    with:
+      dag: multi-repo-prompt.yml
+      params:
+        repos: ${consts.favorite_user_repo_list}
+        prompt: ${params.prompt}
+        branch: ${params.branch}

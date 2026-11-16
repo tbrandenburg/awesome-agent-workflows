@@ -75,6 +75,17 @@ This is a repository collecting valuable [DAGU](https://docs.dagu.sh) based agen
   no eligible input, the sub-DAG call remains untested.
 - Dagu server behavior can vary by configuration/version. Record observed
   results as evidence for the tested instance, not as a universal guarantee.
+- Symlinked DAGs are only discovered when the server enables
+  `dag_discovery.symlinks` in its config. Find the server's real home via its
+  process `DAGU_HOME`; the local CLI may default to a different home.
+- Keep instance-specific lists (for example repositories to iterate over) out of
+  this repository: define them as a `consts:` entry in the server's base config
+  (`$DAGU_HOME/base.yaml`, inherited by all DAGs) and reference them from a thin
+  wrapper DAG via `${consts.NAME}`. Back up `base.yaml` before editing it.
+  `dagu validate` with a different home warns that such a const is unknown;
+  validate with `DAGU_HOME=<server home>` or verify through Dagu MCP.
+- Multi-line const values can be passed to child DAGs as params, but not
+  interpolated into command text; use `env:` plus `printenv` for shell steps.
 
 ## Multi-repository worktree runs
 
