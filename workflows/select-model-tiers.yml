@@ -1,0 +1,98 @@
+description: Select the first authenticated, usable OpenCode model in each tier
+type: graph
+timeout_sec: 1800
+steps:
+  - id: select_models
+    timeout_sec: 1500
+    with:
+      shell: python3
+      shell_args: []
+    run: |
+      import json
+      import re
+      import subprocess
+
+      tiers = {
+          "economy": [
+              "openai/gpt-6-luna",
+              "github-copilot/gpt-6-luna",
+              "anthropic/claude-haiku-5-5",
+              "github-copilot/claude-haiku-5.5",
+              "openrouter/openai/gpt-6-luna",
+              "opencode/big-pickle",
+          ],
+          "balanced": [
+              "openai/gpt-6.1-sol",
+              "github-copilot/gpt-6.1-sol",
+              "anthropic/claude-sonnet-5-5",
+              "github-copilot/claude-sonnet-5.5",
+              "openrouter/openai/gpt-6.1-sol",
+              "opencode/big-pickle",
+          ],
+          "premium": [
+              "openai/gpt-6-astra",
+              "github-copilot/gpt-6-astra",
+              "anthropic/claude-opus-5-5",
+              "github-copilot/claude-opus-5.5",
+              "openrouter/openai/gpt-6-astra",
+              "openrouter/anthropic/claude-opus-5.5",
+              "opencode/big-pickle",
+          ],
+      }
+      auth = json.loads(subprocess.check_output(
+          ["opencode", "auth", "list", "--format", "json", "--standalone"],
+          text=True, timeout=90,
+      ))
+      eligible = {
+          item["id"]
+          for item in auth
+          if any(connection["type"] in ("credential", "env") for connection in item["connections"])
+      }
+      catalog = set(subprocess.check_output(
+          ["opencode", "models", "--standalone"], text=True, timeout=90,
+      ).splitlines())
+      command = ["opencode", "run", "--standalone", "--agent", "build", "--auto"]
+      prompt = "Readiness only: reply exactly MODEL_READY. No tools, files, edits or delegation."
+      auth_error = re.compile(
+          r"authentication|unauthorized|not logged in|api.key.*(?:missing|invalid)|"
+          r"model.*(?:not available|not found|not supported)|access.*denied|"
+          r"insufficient.*quota|credit.*balance|usage limit reached",
+          re.I,
+      )
+      selected = {}
+
+      for tier, candidates in tiers.items():
+          for model in candidates:
+              if model not in catalog or (
+                  model.split("/")[0] not in eligible and model != "opencode/big-pickle"
+              ):
+                  continue
+              result = subprocess.run(
+                  [*command, "--model", model, prompt],
+                  capture_output=True,
+                  text=True,
+                  timeout=120,
+              )
+              if result.returncode == 0 and re.search(
+                  r"(?m)^MODEL_READY\s*$", result.stdout
+              ):
+                  selected[tier] = model
+                  break
+              if not auth_error.search(result.stdout + result.stderr):
+                  raise RuntimeError(
+                      f"Readiness failed for {tier}; refusing silent network/error downgrade"
+                  )
+          if tier not in selected:
+              raise RuntimeError(f"No authenticated usable model for {tier}")
+
+      for tier, model in selected.items():
+          print(f"{tier}={model}")
+          with open(__import__("os").environ["DAGU_OUTPUT_FILE"], "a", encoding="utf-8") as output:
+              output.write(f"{tier}={model}\n")
+    outputs:
+      - name: economy
+        type: string
+      - name: balanced
+        type: string
+      - name: premium
+        type: string

@@ -7,7 +7,12 @@ and authenticated GitHub CLI:
 make validate
 make run WORKFLOW=workflows/latest-issue-resolution.yml
 make run WORKFLOW=workflows/issue-resolution.yml DAGU_FLAGS='--params issue_id=42'
+make run WORKFLOW=workflows/select-model-tiers.yml
 ```
+
+`select-model-tiers` probes the configured OpenCode candidates in economy,
+balanced, and premium order, then publishes the first usable model for each tier
+as step outputs (`economy`, `balanced`, and `premium`).
 
 `issue-resolution` resolves one given open issue. `latest-issue-resolution` is a
 thin wrapper that picks the newest open issue and runs `issue-resolution` on it;
