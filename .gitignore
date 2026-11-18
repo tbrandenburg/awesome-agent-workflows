@@ -47,3 +47,6 @@ coverage/
 !.env.*.example
 !.env.sample
 !.env.*.sample
+
+# Playwright MCP artifacts
+.playwright-mcp/
